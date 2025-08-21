@@ -18,6 +18,15 @@ class JiraMCPServer {
   private jira: JiraClient;
   private baseUrl: string;
   private readonly NO_TEST_LABELS = ['NoTest', 'no-test', 'notest', 'noTest', 'Notest'];
+  private readonly TEAM_QUERIES: Record<string, string> = {
+    'commercial': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
+    'onlineteam': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
+    'marketplace': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
+    'skynetteam': 'labels in (SkynetTeam)',
+    'puzzlesteam': 'project = "DragonBox Labs and Puzzles" OR labels in (PuzzlesTeam)',
+    'gamefactory': 'labels in (engaging-learning, GameFactory)',
+    'corporate': 'labels in (corporate-learning, coreteamx, KahootX)'
+  };
 
   constructor() {
     this.server = new Server(
@@ -76,6 +85,46 @@ class JiraMCPServer {
     }
   }
 
+  private expandTeamLabels(jql: string): string {
+    let expandedJql = jql;
+    
+    // Replace team references with their full query
+    for (const [teamName, teamQuery] of Object.entries(this.TEAM_QUERIES)) {
+      // Match patterns like: labels = "teamname" or labels = "teamnameTeam"
+      const patterns = [
+        new RegExp(`labels\\s*=\\s*"${teamName}"`, 'gi'),
+        new RegExp(`labels\\s*=\\s*"${teamName}team"`, 'gi'),
+        new RegExp(`labels\\s*=\\s*"${teamName}Team"`, 'gi')
+      ];
+      
+      patterns.forEach(pattern => {
+        if (pattern.test(expandedJql)) {
+          const replacement = `(${teamQuery})`;
+          expandedJql = expandedJql.replace(pattern, replacement);
+        }
+      });
+    }
+    
+    return expandedJql;
+  }
+
+  private formatIssueList(issues: any[]): string {
+    return issues.map((issue, index) => {
+      const assignee = issue.fields.assignee?.displayName || 'Unassigned';
+      const status = issue.fields.status.name;
+      const priority = issue.fields.priority?.name || 'None';
+      const labels = issue.fields.labels?.slice(0, 2).join(', ') || '';
+      const components = issue.fields.components?.slice(0, 1).map((c: any) => c.name).join(', ') || '';
+      const issueUrl = `${this.baseUrl}/browse/${issue.key}`;
+      
+      const labelsText = labels ? ` | 🏷️ ${labels}` : '';
+      const componentsText = components ? ` | 🧩 ${components}` : '';
+      
+      return `${index + 1}. **${issue.key}** - ${issue.fields.summary}
+   🔹 ${status} | 🔥 ${priority} | 👤 ${assignee}${labelsText}${componentsText} | 🔗 [Open](${issueUrl})`;
+    }).join('\n\n---\n\n');
+  }
+
   private setupHandlers(): void {
     // Handle tools/list
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -102,7 +151,7 @@ class JiraMCPServer {
           },
           {
             name: 'search_issues',
-            description: 'Search for Jira issues using JQL. By default excludes NoTest labeled tickets unless includeNoTest is true.',
+            description: 'Search for Jira issues using JQL. By default excludes NoTest labeled tickets unless includeNoTest is true. Automatically expands team names (e.g., "commercial" → coreteam3, Commercial, commercial).',
             inputSchema: {
               type: 'object',
               properties: {
@@ -122,6 +171,30 @@ class JiraMCPServer {
                 }
               },
               required: ['jql']
+            }
+          },
+          {
+            name: 'get_team_tickets',
+            description: 'Get tickets for a specific team in a given status. Automatically handles team label mapping.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                team: {
+                  type: 'string',
+                  description: 'Team name (commercial, marketplace, skynetteam, puzzlesteam, gamefactory, onlineteam, coreteam, corporate)'
+                },
+                status: {
+                  type: 'string',
+                  description: 'Ticket status (e.g., "In QA", "Test Passed", "Open")',
+                  default: 'In QA'
+                },
+                limit: {
+                  type: 'number',
+                  description: 'Max results',
+                  default: 20
+                }
+              },
+              required: ['team']
             }
           },
           {
@@ -204,6 +277,8 @@ class JiraMCPServer {
             return await this.getTestingBoardIssues((args as any)?.boardId, (args as any)?.limit || 20);
           case 'search_issues':
             return await this.searchIssues((args as any)?.jql, (args as any)?.limit || 20, (args as any)?.includeNoTest || false);
+          case 'get_team_tickets':
+            return await this.getTeamTickets((args as any)?.team, (args as any)?.status || 'In QA', (args as any)?.limit || 20);
           case 'get_issue_details':
             return await this.getIssueDetails((args as any)?.issueKey);
           case 'get_boards':
@@ -239,20 +314,7 @@ class JiraMCPServer {
         };
       }
 
-      const issueList = results.issues.map((issue, index) => {
-        const status = issue.fields.status.name;
-        const assignee = issue.fields.assignee?.displayName || 'Unassigned';
-        const reporter = issue.fields.reporter?.displayName || 'Unknown';
-        const priority = issue.fields.priority.name;
-        const issueUrl = `${this.baseUrl}/browse/${issue.key}`;
-        
-        return `${index + 1}. **${issue.fields.summary}** (${issue.key})
-   📝 Reporter: ${reporter}
-   🔹 Status: ${status}
-   🔥 Priority: ${priority}
-   👤 Assignee: ${assignee}
-   🔗 [Open in Jira](${issueUrl})`;
-      }).join('\n\n');
+      const issueList = this.formatIssueList(results.issues);
 
       return {
         content: [{
@@ -265,14 +327,55 @@ class JiraMCPServer {
     }
   }
 
+  private async getTeamTickets(team: string, status: string, limit: number) {
+    if (!team) {
+      throw new Error('Team name is required');
+    }
+
+    const teamLower = team.toLowerCase();
+    const teamQuery = this.TEAM_QUERIES[teamLower];
+    
+    if (!teamQuery) {
+      const availableTeams = Object.keys(this.TEAM_QUERIES).join(', ');
+      throw new Error(`Unknown team: ${team}. Available teams: ${availableTeams}`);
+    }
+
+    try {
+      const jql = `status = "${status}" AND (${teamQuery})`;
+      const filteredJql = this.addNoTestFilter(jql, false);
+      const results = await this.jira.searchIssues(filteredJql, limit);
+
+      if (results.issues.length === 0) {
+        return {
+          content: [{ 
+            type: 'text', 
+            text: `**0 tickets** for ${team} team in "${status}" status.` 
+          }]
+        };
+      }
+
+      const issueList = this.formatIssueList(results.issues);
+
+      return {
+        content: [{
+          type: 'text',
+          text: `**${results.issues.length} tickets** for ${team} team in "${status}" status:\n\n${issueList}`
+        }]
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to get team tickets: ${error.message}`);
+    }
+  }
+
   private async searchIssues(jql: string, limit: number, includeNoTest: boolean = false) {
     if (!jql) {
       throw new Error('JQL query is required');
     }
 
     try {
-      // Apply NoTest filter by default unless explicitly requested
-      const filteredJql = this.addNoTestFilter(jql, includeNoTest);
+      // First expand team labels, then apply NoTest filter
+      const expandedJql = this.expandTeamLabels(jql);
+      const filteredJql = this.addNoTestFilter(expandedJql, includeNoTest);
       const results = await this.jira.searchIssues(filteredJql, limit);
 
       if (results.issues.length === 0) {
@@ -284,20 +387,7 @@ class JiraMCPServer {
         };
       }
 
-      const issueList = results.issues.map((issue, index) => {
-        const status = issue.fields.status.name;
-        const assignee = issue.fields.assignee?.displayName || 'Unassigned';
-        const reporter = issue.fields.reporter?.displayName || 'Unknown';
-        const priority = issue.fields.priority?.name || 'None';
-        const issueUrl = `${this.baseUrl}/browse/${issue.key}`;
-        
-        return `${index + 1}. **${issue.fields.summary}** (${issue.key})
-   📝 Reporter: ${reporter}
-   🔹 Status: ${status}
-   🔥 Priority: ${priority}
-   👤 Assignee: ${assignee}
-   🔗 [Open in Jira](${issueUrl})`;
-      }).join('\n\n');
+      const issueList = this.formatIssueList(results.issues);
 
       return {
         content: [{

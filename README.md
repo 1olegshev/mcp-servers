@@ -25,7 +25,12 @@ This repository contains MCP (Model Context Protocol) server implementations for
    # Edit .env with your actual credentials
    ```
 
-3. **Test your setup:**
+3. **Install all dependencies:**
+   ```bash
+   npm run install:all
+   ```
+
+4. **Test your setup:**
    ```bash
    ./test-servers.sh
    ```
@@ -86,7 +91,8 @@ npm run dev
 
 #### Jira MCP Server
 
-- **search_issues**: Search issues with JQL (with smart NoTest filtering)
+- **search_issues**: Search issues with JQL (with smart NoTest filtering and team expansion)
+- **get_team_tickets**: Get tickets for specific teams using business logic
 - **get_testing_board_issues**: Get issues from specific testing board
 - **get_issue_details**: Get detailed issue information  
 - **get_boards**: List all available Jira boards
@@ -96,9 +102,27 @@ npm run dev
 **🔍 Smart NoTest Filtering:**
 By default, all searches exclude tickets with NoTest labels (`NoTest`, `no-test`, `notest`, `noTest`, `Notest`) to match your testing board behavior. Use `includeNoTest: true` parameter to include them.
 
+**🏢 Team Business Logic:**
+Automatically maps team names to their projects and labels:
+- **Commercial**: `project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)`
+- **Online Team**: Same as Commercial (shared project space)
+- **Marketplace**: Same as Commercial (shared project space)
+- **SkynetTeam**: `labels in (SkynetTeam)`
+- **PuzzlesTeam**: `project = "DragonBox Labs and Puzzles" OR labels in (PuzzlesTeam)`
+- **GameFactory**: `labels in (engaging-learning, GameFactory)`
+- **Corporate**: `labels in (corporate-learning, coreteamx, KahootX)`
+
+**📊 Consistent Output Format:**
+All tools return tickets in the same format:
+```
+1. **BACK-13128** - NPE during purgeKahootSessionData
+   🔹 In QA | 🔥 Major | 👤 Colin Smith | 🏷️ Commercial, NoTest | 🧩 platform-rest-api | 🔗 [Open](URL)
+```
+
 **Example Queries:**
-- *"Show me tickets ready for testing from SkynetTeam"* → `status = "In QA" AND labels = "SkynetTeam"`
-- *"Do we have test approved backend bugs?"* → `project = BACK AND issuetype = Bug AND status = "Test Passed"`
+- *"How many tickets ready for testing for commercial team?"* → Uses team business logic
+- *"Show me SkynetTeam tickets ready for testing"* → `status = "In QA" AND labels = "SkynetTeam"`
+- *"Backend bugs including NoTest tickets"* → `project = BACK AND issuetype = Bug` with `includeNoTest: true`
 
 #### Confluence MCP Server
 
@@ -184,6 +208,25 @@ Agent: [Finds parent page] → [Creates child page] → [Returns page info and U
     }
   }
 }
+```
+
+## 🚀 Running the Servers
+
+### Development Mode (All servers with auto-reload):
+```bash
+npm run dev
+```
+
+### Production Mode (All servers):
+```bash
+npm run start
+```
+
+### Individual Servers:
+```bash
+npm run dev:jira        # Just Jira server
+npm run start:confluence # Just Confluence server  
+npm run build:slack     # Just build Slack server
 ```
 
 ## 🧪 Testing
