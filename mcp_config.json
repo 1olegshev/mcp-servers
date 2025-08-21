@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "slack": {
+      "command": "node",
+      "args": ["slack-mcp-server/server.js"],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_APP_TOKEN": "${SLACK_APP_TOKEN}"
+      }
+    },
+    "jira": {
+      "command": "node",
+      "args": ["jira-mcp-server/server.js"],
+      "env": {
+        "JIRA_BASE_URL": "${JIRA_BASE_URL}",
+        "JIRA_EMAIL": "${JIRA_EMAIL}",
+        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+      }
+    },
+    "confluence": {
+      "command": "node",
+      "args": ["confluence-mcp-server/server.js"],
+      "env": {
+        "CONFLUENCE_BASE_URL": "${CONFLUENCE_BASE_URL}",
+        "CONFLUENCE_EMAIL": "${CONFLUENCE_EMAIL}",
+        "CONFLUENCE_API_TOKEN": "${CONFLUENCE_API_TOKEN}"
+      }
+    }
+  }
+}
+
