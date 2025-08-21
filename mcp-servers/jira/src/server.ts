@@ -242,14 +242,16 @@ class JiraMCPServer {
       const issueList = results.issues.map((issue, index) => {
         const status = issue.fields.status.name;
         const assignee = issue.fields.assignee?.displayName || 'Unassigned';
+        const reporter = issue.fields.reporter?.displayName || 'Unknown';
         const priority = issue.fields.priority.name;
         const issueUrl = `${this.baseUrl}/browse/${issue.key}`;
         
-        return `${index + 1}. **${issue.key}**: ${issue.fields.summary}
-   ��� Status: ${status}
-   ��� Assignee: ${assignee}
-   ��� Priority: ${priority}
-   ��� [Open in Jira](${issueUrl})`;
+        return `${index + 1}. **${issue.fields.summary}** (${issue.key})
+   📝 Reporter: ${reporter}
+   🔹 Status: ${status}
+   🔥 Priority: ${priority}
+   👤 Assignee: ${assignee}
+   🔗 [Open in Jira](${issueUrl})`;
       }).join('\n\n');
 
       return {
@@ -285,12 +287,16 @@ class JiraMCPServer {
       const issueList = results.issues.map((issue, index) => {
         const status = issue.fields.status.name;
         const assignee = issue.fields.assignee?.displayName || 'Unassigned';
+        const reporter = issue.fields.reporter?.displayName || 'Unknown';
+        const priority = issue.fields.priority?.name || 'None';
         const issueUrl = `${this.baseUrl}/browse/${issue.key}`;
         
-        return `${index + 1}. **${issue.key}**: ${issue.fields.summary}
-   ��� Status: ${status}
-   ��� Assignee: ${assignee}
-   ��� [Open in Jira](${issueUrl})`;
+        return `${index + 1}. **${issue.fields.summary}** (${issue.key})
+   📝 Reporter: ${reporter}
+   🔹 Status: ${status}
+   🔥 Priority: ${priority}
+   👤 Assignee: ${assignee}
+   🔗 [Open in Jira](${issueUrl})`;
       }).join('\n\n');
 
       return {
