@@ -2,15 +2,16 @@
   "mcpServers": {
     "slack": {
       "command": "node",
-      "args": ["slack-mcp-server/server.js"],
+      "args": ["/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack/server.js"],
       "env": {
         "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
         "SLACK_APP_TOKEN": "${SLACK_APP_TOKEN}"
       }
     },
     "jira": {
-      "command": "node",
-      "args": ["jira-mcp-server/server.js"],
+      "command": "npm",
+      "args": ["run", "start"],
+      "cwd": "/Users/olegshevchenko/Sourses/MCP/mcp-servers/jira",
       "env": {
         "JIRA_BASE_URL": "${JIRA_BASE_URL}",
         "JIRA_EMAIL": "${JIRA_EMAIL}",
@@ -18,8 +19,9 @@
       }
     },
     "confluence": {
-      "command": "node",
-      "args": ["confluence-mcp-server/server.js"],
+      "command": "npm",
+      "args": ["run", "start"],
+      "cwd": "/Users/olegshevchenko/Sourses/MCP/mcp-servers/confluence",
       "env": {
         "CONFLUENCE_BASE_URL": "${CONFLUENCE_BASE_URL}",
         "CONFLUENCE_EMAIL": "${CONFLUENCE_EMAIL}",

@@ -24,9 +24,25 @@ export class JiraClient {
 
   async testConnection(): Promise<boolean> {
     try {
-      await this.client.get('/myself');
+      console.error('Testing connection to:', `${this.config.baseUrl}/rest/api/2/myself`);
+      console.error('Using email:', this.config.email);
+      console.error('Token length:', this.config.apiToken?.length || 0);
+      
+      const response = await this.client.get('/myself');
+      console.error('Connection test successful, user:', response.data.displayName);
       return true;
     } catch (error: any) {
+      console.error('Full error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          baseURL: error.config?.baseURL
+        }
+      });
       throw new Error(`Connection test failed: ${error.response?.data?.message || error.message}`);
     }
   }

@@ -48,10 +48,16 @@ class JiraMCPServer {
 
   private initializeJira(): JiraClient {
     const config: JiraConfig = {
-      baseUrl: process.env.JIRA_BASE_URL || '',
-      email: process.env.JIRA_EMAIL || '',
-      apiToken: process.env.JIRA_API_TOKEN || '',
+      baseUrl: (process.env.JIRA_BASE_URL || '').trim().replace(/\r\n?/g, ''),
+      email: (process.env.JIRA_EMAIL || '').trim().replace(/\r\n?/g, ''),
+      apiToken: (process.env.JIRA_API_TOKEN || '').trim().replace(/\r\n?/g, '')
     };
+
+    console.error('Jira config:', {
+      baseUrl: config.baseUrl,
+      email: config.email,
+      hasToken: !!config.apiToken
+    });
 
     if (!config.baseUrl || !config.email || !config.apiToken) {
       console.error('❌ Missing Jira configuration');
@@ -125,6 +131,24 @@ class JiraMCPServer {
     }).join('\n\n---\n\n');
   }
 
+  private formatSuccessResponse(message: string, content?: string): any {
+    return {
+      content: [{
+        type: 'text',
+        text: content ? `⚡ ${message}:\n\n${content}` : `✅ ${message}`
+      }]
+    };
+  }
+
+  private formatErrorResponse(message: string): any {
+    return {
+      content: [{
+        type: 'text',
+        text: `❌ ${message}`
+      }]
+    };
+  }
+
   private setupHandlers(): void {
     // Handle tools/list
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -132,21 +156,22 @@ class JiraMCPServer {
         tools: [
           {
             name: 'get_testing_board_issues',
-            description: 'Get issues from the testing board',
+            description: 'Get issues from the testing board (defaults to board ID 23)',
             inputSchema: {
               type: 'object',
               properties: {
                 boardId: { 
                   type: 'number', 
-                  description: 'Testing board ID' 
+                  description: 'Testing board ID (defaults to 23)', 
+                  default: 23
                 },
                 limit: { 
                   type: 'number', 
                   description: 'Max issues to return', 
-                  default: 20 
+                  default: 150 
                 }
               },
-              required: ['boardId']
+              required: []
             }
           },
           {
@@ -162,7 +187,7 @@ class JiraMCPServer {
                 limit: { 
                   type: 'number', 
                   description: 'Max results', 
-                  default: 20 
+                  default: 50 
                 },
                 includeNoTest: {
                   type: 'boolean',
@@ -224,44 +249,6 @@ class JiraMCPServer {
                 }
               }
             }
-          },
-          {
-            name: 'update_issue_labels',
-            description: 'Update labels on a Jira issue',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                issueKey: { 
-                  type: 'string', 
-                  description: 'Issue key (e.g., PROJ-123)' 
-                },
-                labels: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Array of label names to add'
-                }
-              },
-              required: ['issueKey', 'labels']
-            }
-          },
-          {
-            name: 'update_issue_components',
-            description: 'Update components on a Jira issue',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                issueKey: { 
-                  type: 'string', 
-                  description: 'Issue key (e.g., PROJ-123)' 
-                },
-                componentIds: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Array of component IDs'
-                }
-              },
-              required: ['issueKey', 'componentIds']
-            }
           }
         ]
       };
@@ -274,19 +261,15 @@ class JiraMCPServer {
       try {
         switch (name) {
           case 'get_testing_board_issues':
-            return await this.getTestingBoardIssues((args as any)?.boardId, (args as any)?.limit || 20);
+            return await this.getTestingBoardIssues((args as any)?.boardId || 23, (args as any)?.limit || 150);
           case 'search_issues':
-            return await this.searchIssues((args as any)?.jql, (args as any)?.limit || 20, (args as any)?.includeNoTest || false);
+            return await this.searchIssues((args as any)?.jql, (args as any)?.limit || 50, (args as any)?.includeNoTest || false);
           case 'get_team_tickets':
             return await this.getTeamTickets((args as any)?.team, (args as any)?.status || 'In QA', (args as any)?.limit || 20);
           case 'get_issue_details':
             return await this.getIssueDetails((args as any)?.issueKey);
           case 'get_boards':
             return await this.getBoards();
-          case 'update_issue_labels':
-            return await this.updateIssueLabels((args as any)?.issueKey, (args as any)?.labels);
-          case 'update_issue_components':
-            return await this.updateIssueComponents((args as any)?.issueKey, (args as any)?.componentIds);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -306,22 +289,11 @@ class JiraMCPServer {
       const results = await this.jira.getBoardIssues(boardId, limit);
       
       if (results.issues.length === 0) {
-        return {
-          content: [{ 
-            type: 'text', 
-            text: `❌ No issues found on board ${boardId}` 
-          }]
-        };
+        return this.formatErrorResponse(`No issues found on board ${boardId}`);
       }
 
       const issueList = this.formatIssueList(results.issues);
-
-      return {
-        content: [{
-          type: 'text',
-          text: `��� Found ${results.issues.length} issues on testing board:\n\n${issueList}`
-        }]
-      };
+      return this.formatSuccessResponse(`Found ${results.issues.length} issues on testing board`, issueList);
     } catch (error: any) {
       throw new Error(`Failed to get board issues: ${error.message}`);
     }
@@ -346,22 +318,11 @@ class JiraMCPServer {
       const results = await this.jira.searchIssues(filteredJql, limit);
 
       if (results.issues.length === 0) {
-        return {
-          content: [{ 
-            type: 'text', 
-            text: `**0 tickets** for ${team} team in "${status}" status.` 
-          }]
-        };
+        return this.formatErrorResponse(`No tickets found for ${team} team in "${status}" status`);
       }
 
       const issueList = this.formatIssueList(results.issues);
-
-      return {
-        content: [{
-          type: 'text',
-          text: `**${results.issues.length} tickets** for ${team} team in "${status}" status:\n\n${issueList}`
-        }]
-      };
+      return this.formatSuccessResponse(`Found ${results.issues.length} tickets for ${team} team in "${status}" status`, issueList);
     } catch (error: any) {
       throw new Error(`Failed to get team tickets: ${error.message}`);
     }
@@ -379,22 +340,12 @@ class JiraMCPServer {
       const results = await this.jira.searchIssues(filteredJql, limit);
 
       if (results.issues.length === 0) {
-        return {
-          content: [{ 
-            type: 'text', 
-            text: `❌ No issues found for JQL: ${filteredJql}${includeNoTest ? '' : ' (NoTest labeled tickets excluded by default)'}` 
-          }]
-        };
+        const noTestNote = includeNoTest ? '' : ' (NoTest labeled tickets excluded by default)';
+        return this.formatErrorResponse(`No issues found for JQL: ${filteredJql}${noTestNote}`);
       }
 
       const issueList = this.formatIssueList(results.issues);
-
-      return {
-        content: [{
-          type: 'text',
-          text: `��� Found ${results.issues.length} issues:\n\n${issueList}`
-        }]
-      };
+      return this.formatSuccessResponse(`Found ${results.issues.length} issues`, issueList);
     } catch (error: any) {
       throw new Error(`Failed to search issues: ${error.message}`);
     }
@@ -414,25 +365,21 @@ class JiraMCPServer {
         ? issue.fields.components.map(c => c.name).join(', ') 
         : 'None';
 
-      let response = `��� **${issue.key}**: ${issue.fields.summary}\n\n`;
-      response += `**��� Details:**\n`;
-      response += `• ��� Status: ${issue.fields.status.name}\n`;
-      response += `• ��� Assignee: ${issue.fields.assignee?.displayName || 'Unassigned'}\n`;
-      response += `• ���‍��� Reporter: ${issue.fields.reporter.displayName}\n`;
-      response += `• ��� Priority: ${issue.fields.priority.name}\n`;
-      response += `• ��� Type: ${issue.fields.issuetype.name}\n`;
-      response += `• ���️ Labels: ${labels}\n`;
-      response += `• ��� Components: ${components}\n`;
-      response += `• ��� Created: ${new Date(issue.fields.created).toLocaleDateString()}\n`;
-      response += `• ��� Updated: ${new Date(issue.fields.updated).toLocaleDateString()}\n`;
-      response += `• ��� [Open in Jira](${issueUrl})\n`;
+      const details = `**${issue.key}**: ${issue.fields.summary}
 
-      return {
-        content: [{ 
-          type: 'text', 
-          text: response 
-        }]
-      };
+**📋 Details:**
+• 🔹 Status: ${issue.fields.status.name}
+• 👤 Assignee: ${issue.fields.assignee?.displayName || 'Unassigned'}
+• 👨‍💻 Reporter: ${issue.fields.reporter.displayName}
+• 🔥 Priority: ${issue.fields.priority.name}
+• 📝 Type: ${issue.fields.issuetype.name}
+• 🏷️ Labels: ${labels}
+• 🧩 Components: ${components}
+• 📅 Created: ${new Date(issue.fields.created).toLocaleDateString()}
+• ⏰ Updated: ${new Date(issue.fields.updated).toLocaleDateString()}
+• 🔗 [Open in Jira](${issueUrl})`;
+
+      return this.formatSuccessResponse(`Issue details for ${issue.key}`, details);
     } catch (error: any) {
       throw new Error(`Failed to get issue details: ${error.message}`);
     }
@@ -444,55 +391,16 @@ class JiraMCPServer {
 
       const boardList = boards.values.map(board => {
         return `• **${board.name}** (ID: ${board.id}) - ${board.type}
-  ��� Project: ${board.location.projectName} (${board.location.projectKey})`;
+  📁 Project: ${board.location.projectName} (${board.location.projectKey})`;
       }).join('\n');
 
-      return {
-        content: [{
-          type: 'text',
-          text: `��� Found ${boards.values.length} boards:\n\n${boardList}\n\n��� Use board IDs with 'get_testing_board_issues' to see specific board issues.`
-        }]
-      };
+      const content = `${boardList}
+
+💡 Use board IDs with 'get_testing_board_issues' to see specific board issues.`;
+
+      return this.formatSuccessResponse(`Found ${boards.values.length} boards`, content);
     } catch (error: any) {
       throw new Error(`Failed to get boards: ${error.message}`);
-    }
-  }
-
-  private async updateIssueLabels(issueKey: string, labels: string[]) {
-    if (!issueKey || !labels) {
-      throw new Error('Issue key and labels are required');
-    }
-
-    try {
-      await this.jira.updateIssueLabels(issueKey, labels);
-      
-      return {
-        content: [{ 
-          type: 'text', 
-          text: `✅ Successfully updated labels for ${issueKey}: ${labels.join(', ')}` 
-        }]
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to update labels: ${error.message}`);
-    }
-  }
-
-  private async updateIssueComponents(issueKey: string, componentIds: string[]) {
-    if (!issueKey || !componentIds) {
-      throw new Error('Issue key and component IDs are required');
-    }
-
-    try {
-      await this.jira.updateIssueComponents(issueKey, componentIds);
-      
-      return {
-        content: [{ 
-          type: 'text', 
-          text: `✅ Successfully updated components for ${issueKey}` 
-        }]
-      };
-    } catch (error: any) {
-      throw new Error(`Failed to update components: ${error.message}`);
     }
   }
 
@@ -504,7 +412,7 @@ class JiraMCPServer {
 
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
-      console.error('��� Jira MCP server running on stdio');
+      console.error('🚀 Jira MCP server running on stdio');
     } catch (error: any) {
       console.error('❌ Failed to start server:', error.message);
       process.exit(1);
