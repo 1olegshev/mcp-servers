@@ -75,29 +75,6 @@ class JiraMCPServer {
     return new JiraClient(config);
   }
 
-  private getFullUrl(relativePath: string): string {
-    if (!relativePath) return 'N/A';
-    if (relativePath.startsWith('http')) return relativePath;
-    
-    const cleanPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
-    return `${this.baseUrl}/${cleanPath}`;
-  }
-
-  private addNoTestFilter(jql: string, includeNoTest: boolean = false): string {
-    if (includeNoTest) {
-      return jql; // Return original JQL if including NoTest tickets
-    }
-    
-    // Add NoTest exclusion filter
-    const noTestFilter = `(labels not in (${this.NO_TEST_LABELS.join(', ')}) OR labels is EMPTY)`;
-    
-    if (jql.trim()) {
-      return `(${jql}) AND ${noTestFilter}`;
-    } else {
-      return noTestFilter;
-    }
-  }
-
   private expandTeamLabels(jql: string): string {
     let expandedJql = jql;
     
@@ -177,13 +154,13 @@ class JiraMCPServer {
           },
           {
             name: 'get_testing_remaining',
-            description: 'List tickets remaining in testing on board scope. Defaults to status = Testing; configurable to include In QA or Test Passed.',
+            description: 'List tickets remaining in testing or QA on board scope. Conditional defaults: when separateNoTest=true defaults to ["In QA", "Testing"], otherwise defaults to ["Testing"].',
             inputSchema: {
               type: 'object',
               properties: {
                 boardId: { type: 'number', description: 'Jira board id', default: 23 },
                 domain: { type: 'string', description: 'all | frontend | backend | wordpress | other', default: 'all' },
-                statuses: { type: 'array', description: 'Statuses to include (e.g., ["Testing"])', items: { type: 'string' }, default: ['Testing'] },
+                statuses: { type: 'array', description: 'Statuses to include (e.g., ["In QA", "Testing"])', items: { type: 'string' }, default: [] },
                 limit: { type: 'number', description: 'Max results to list', default: 50 },
                 separateNoTest: { type: 'boolean', description: 'If true, shows a separate section for NoTest items in same scope', default: false }
               },
@@ -262,20 +239,16 @@ class JiraMCPServer {
 
       try {
         switch (name) {
-          case 'get_testing_board_issues':
-            return await this.getTestingBoardIssues((args as any)?.boardId || 23, (args as any)?.limit || 150);
           case 'search_issues':
             return await this.searchIssues((args as any)?.jql, (args as any)?.limit || 50, (args as any)?.includeNoTest || false);
           case 'get_team_tickets':
             return await this.getTeamTickets((args as any)?.team, (args as any)?.status || 'In QA', (args as any)?.limit || 20);
           case 'get_issue_details':
             return await this.getIssueDetails((args as any)?.issueKey);
-          case 'get_boards':
-            return await this.getBoards();
           case 'get_testing_summary':
             return await this.getTestingSummary((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.separateNoTest ?? false);
           case 'get_testing_remaining':
-            return await this.getTestingRemaining((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.statuses ?? ['Testing'], (args as any)?.limit ?? 50, (args as any)?.separateNoTest ?? false);
+            return await this.getTestingRemaining((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.statuses, (args as any)?.limit ?? 50, (args as any)?.separateNoTest ?? false);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -305,13 +278,26 @@ class JiraMCPServer {
 
   private buildStatusesJql(statuses: string[]): string {
     const list = (statuses || []).map(s => `"${s}"`).join(', ');
-    return list ? `(status in (${list}))` : '';
+    return list ? `status in (${list})` : '';
   }
 
-  private joinJql(parts: string[]): string {
-    const filtered = parts.map(p => p.trim()).filter(Boolean);
-    if (filtered.length === 0) return '';
-    return filtered.map(p => `(${p})`).join(' AND ');
+  private buildRobustJql(parts: string[], excludeNoTest: boolean): string {
+    // Filter out empty parts, clean them
+    const cleanParts = parts
+      .filter(p => p && p.trim())
+      .map(part => part.replace(/\s+ORDER\s+BY\s+.+$/i, '').trim())
+      .filter(Boolean);
+      
+    if (excludeNoTest) {
+        const quotedLabels = this.NO_TEST_LABELS.map(label => `"${label}"`).join(', ');
+        const noTestFilter = `(labels not in (${quotedLabels}) OR labels is EMPTY)`;
+        cleanParts.push(noTestFilter);
+    }
+
+    if (cleanParts.length === 0) return '';
+    
+    // Wrap each part in parentheses and join with AND for safety
+    return cleanParts.map(part => `(${part})`).join(' AND ');
   }
 
   private async getTestingSummary(boardId: number, domain: string, separateNoTest: boolean) {
@@ -321,9 +307,8 @@ class JiraMCPServer {
       const statuses = ['In QA', 'Testing', 'Test Passed'];
       const statusJql = this.buildStatusesJql(statuses);
 
-      // Build JQL without NoTest first
-      const scopedJql = this.joinJql([baseJql, domainJql, statusJql]);
-      const filteredJql = this.addNoTestFilter(scopedJql, false);
+      // Build JQL, assuming board filter handles NoTest exclusion
+      const filteredJql = this.buildRobustJql([baseJql, domainJql, statusJql], false);
 
       // Fetch issues up to a reasonable cap and count client-side
       const results = await this.jira.searchIssues(filteredJql, 200);
@@ -345,8 +330,7 @@ class JiraMCPServer {
         // Add per-domain lines
         for (const d of ['frontend', 'backend', 'wordpress', 'other']) {
           const dj = this.buildDomainJql(d);
-          const j = this.joinJql([baseJql, dj, statusJql]);
-          const jf = this.addNoTestFilter(j, false);
+          const jf = this.buildRobustJql([baseJql, dj, statusJql], false);
           const res = await this.jira.searchIssues(jf, 200);
           const c = { inqa: 0, testing: 0, passed: 0 };
           for (const issue of res.issues || []) {
@@ -362,7 +346,8 @@ class JiraMCPServer {
       }
 
       if (separateNoTest) {
-        const noTestJql = this.joinJql([baseJql, domainJql, statusJql, `labels in (${this.NO_TEST_LABELS.join(', ')})`]);
+        const noTestLabelsJql = `labels in (${this.NO_TEST_LABELS.map(l => `"${l}"`).join(',')})`;
+        const noTestJql = this.buildRobustJql([baseJql, domainJql, statusJql, noTestLabelsJql], false);
         const noTestRes = await this.jira.searchIssues(noTestJql, 200);
         const n = { inqa: 0, testing: 0, passed: 0 };
         for (const issue of noTestRes.issues || []) {
@@ -382,54 +367,59 @@ class JiraMCPServer {
   }
 
   private async getTestingRemaining(boardId: number, domain: string, statuses: string[], limit: number, separateNoTest: boolean) {
+    // Conditional defaults for statuses based on separateNoTest flag
     if (!Array.isArray(statuses) || statuses.length === 0) {
-      statuses = ['Testing'];
+      statuses = separateNoTest ? ['In QA', 'Testing'] : ['Testing'];
     }
     try {
-      const baseJql = await this.jira.getBoardFilterJql(boardId);
-      const domainJql = this.buildDomainJql(domain);
-      const statusJql = this.buildStatusesJql(statuses);
-      const scopedJql = this.joinJql([baseJql, domainJql, statusJql]);
-
-      const filteredJql = this.addNoTestFilter(scopedJql, false);
-      const results = await this.jira.searchIssues(filteredJql, limit);
-
-      if ((results.issues || []).length === 0) {
-        return this.formatErrorResponse('No tickets found for the requested testing scope');
-      }
-
-      const list = this.formatIssueList(results.issues);
-      let message = `Found ${(results.issues || []).length} ticket(s) in ${statuses.join(', ')}${domain !== 'all' ? ` (${domain})` : ''}`;
-      let content = list;
+      let message: string;
+      let content: string;
 
       if (separateNoTest) {
-        const noTestJql = this.joinJql([baseJql, domainJql, statusJql, `labels in (${this.NO_TEST_LABELS.join(', ')})`]);
-        const noTestRes = await this.jira.searchIssues(noTestJql, Math.max(10, limit));
-        const noTestList = (noTestRes.issues || []).length > 0 ? this.formatIssueList(noTestRes.issues) : 'None';
-        content = `${content}
+        // --- Strategy for including NoTest tickets ---
+        // Build two simple, separate JQL queries from scratch to avoid board filter complexity.
+        const statusJql = this.buildStatusesJql(statuses);
+        const domainJql = this.buildDomainJql(domain);
+        
+        // 1. Query for regular tickets (NoTest excluded, only KAHOOT, BACK, OPT projects)
+        const projectFilterJql = `project in (KAHOOT, BACK, OPT)`;
+        const regularJql = this.buildRobustJql([statusJql, domainJql, projectFilterJql], true);
+        const regularResults = await this.jira.searchIssues(regularJql, limit);
+        const regularList = regularResults.issues.length > 0 ? this.formatIssueList(regularResults.issues) : 'None';
 
-NoTest (separate):
-${noTestList}`;
+        // 2. Query for NoTest tickets (only KAHOOT, BACK, OPT projects)
+        const noTestLabelsJql = `labels in ("${this.NO_TEST_LABELS.join('", "')}")`;
+        const noTestJql = this.buildRobustJql([statusJql, domainJql, noTestLabelsJql, projectFilterJql], false);
+        const noTestResults = await this.jira.searchIssues(noTestJql, limit);
+        const noTestList = noTestResults.issues.length > 0 ? this.formatIssueList(noTestResults.issues) : 'None';
+
+        const totalFound = regularResults.issues.length + noTestResults.issues.length;
+        message = `Found ${totalFound} ticket(s) in ${statuses.join(', ')}`;
+        content = `Regular tickets (${regularResults.issues.length}):\n${regularList}\n\nNoTest tickets (${noTestResults.issues.length}):\n${noTestList}`;
+
+      } else {
+        // --- Strategy for default case (using board filter) ---
+        // Use the board's filter but reliably strip the ORDER BY clause.
+        const baseJql = await this.jira.getBoardFilterJql(boardId);
+        const domainJql = this.buildDomainJql(domain);
+        const statusJql = this.buildStatusesJql(statuses);
+        
+        // Build the query. Assume board JQL handles NoTest, so pass `false`.
+        const scopedJql = this.buildRobustJql([baseJql, domainJql, statusJql], false);
+        
+        const results = await this.jira.searchIssues(scopedJql, limit);
+
+        if ((results.issues || []).length === 0) {
+          return this.formatErrorResponse('No tickets found for the requested testing scope');
+        }
+        
+        message = `Found ${results.issues.length} ticket(s) in ${statuses.join(', ')} on board ${boardId}`;
+        content = this.formatIssueList(results.issues);
       }
 
       return this.formatSuccessResponse(message, content);
     } catch (error: any) {
       throw new Error(`Failed to get testing remaining: ${error.message}`);
-    }
-  }
-
-  private async getTestingBoardIssues(boardId: number, limit: number) {
-    try {
-      const results = await this.jira.getBoardIssues(boardId, limit);
-      
-      if (results.issues.length === 0) {
-        return this.formatErrorResponse(`No issues found on board ${boardId}`);
-      }
-
-      const issueList = this.formatIssueList(results.issues);
-      return this.formatSuccessResponse(`Found ${results.issues.length} issues on testing board`, issueList);
-    } catch (error: any) {
-      throw new Error(`Failed to get board issues: ${error.message}`);
     }
   }
 
@@ -447,8 +437,8 @@ ${noTestList}`;
     }
 
     try {
-      const jql = `status = "${status}" AND (${teamQuery})`;
-      const filteredJql = this.addNoTestFilter(jql, false);
+      const statusJql = `status = "${status}"`;
+      const filteredJql = this.buildRobustJql([statusJql, teamQuery], true);
       const results = await this.jira.searchIssues(filteredJql, limit);
 
       if (results.issues.length === 0) {
@@ -470,7 +460,7 @@ ${noTestList}`;
     try {
       // First expand team labels, then apply NoTest filter
       const expandedJql = this.expandTeamLabels(jql);
-      const filteredJql = this.addNoTestFilter(expandedJql, includeNoTest);
+      const filteredJql = this.buildRobustJql([expandedJql], !includeNoTest);
       const results = await this.jira.searchIssues(filteredJql, limit);
 
       if (results.issues.length === 0) {
@@ -516,25 +506,6 @@ ${noTestList}`;
       return this.formatSuccessResponse(`Issue details for ${issue.key}`, details);
     } catch (error: any) {
       throw new Error(`Failed to get issue details: ${error.message}`);
-    }
-  }
-
-  private async getBoards() {
-    try {
-      const boards = await this.jira.getBoards();
-
-      const boardList = boards.values.map(board => {
-        return `• **${board.name}** (ID: ${board.id}) - ${board.type}
-  📁 Project: ${board.location.projectName} (${board.location.projectKey})`;
-      }).join('\n');
-
-      const content = `${boardList}
-
-💡 Use board IDs with 'get_testing_board_issues' to see specific board issues.`;
-
-      return this.formatSuccessResponse(`Found ${boards.values.length} boards`, content);
-    } catch (error: any) {
-      throw new Error(`Failed to get boards: ${error.message}`);
     }
   }
 
