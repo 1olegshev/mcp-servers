@@ -75,6 +75,87 @@ export class ConfluenceClient {
     }
   }
 
+  async updatePage(pageId: string, title: string, content: string, version: number, status: 'current' | 'draft' = 'draft'): Promise<ConfluencePage> {
+    try {
+      const response = await this.client.put(`/content/${pageId}`, {
+        id: pageId,
+        type: 'page',
+        title,
+        status,
+        body: {
+          storage: {
+            value: content,
+            representation: 'storage'
+          }
+        },
+        version: {
+          number: version + 1
+        }
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(`Failed to update page: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async createPageDraft(spaceKey: string, title: string, content: string, parentId?: string): Promise<ConfluencePage> {
+    try {
+      const pageData: any = {
+        type: 'page',
+        title,
+        status: 'draft',
+        space: {
+          key: spaceKey
+        },
+        body: {
+          storage: {
+            value: content,
+            representation: 'storage'
+          }
+        }
+      };
+
+      if (parentId) {
+        pageData.ancestors = [{ id: parentId }];
+      }
+
+      const response = await this.client.post('/content', pageData);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(`Failed to create draft: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async getPageVersions(pageId: string, limit: number = 10): Promise<any> {
+    try {
+      const response = await this.client.get(`/content/${pageId}/version`, {
+        params: { limit }
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(`Failed to get page versions: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  async publishDraft(pageId: string, version: number): Promise<ConfluencePage> {
+    try {
+      const page = await this.getPage(pageId);
+      const response = await this.client.put(`/content/${pageId}`, {
+        id: pageId,
+        type: 'page',
+        title: page.title,
+        status: 'current',
+        body: page.body,
+        version: {
+          number: version + 1
+        }
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(`Failed to publish draft: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
   async testConnection(): Promise<boolean> {
     try {
       // Try to get current user info to test auth

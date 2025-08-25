@@ -33,6 +33,9 @@ export interface ConfluencePage {
     id: string;
     title: string;
   }>;
+  _links?: {
+    webui?: string;
+  };
 }
 
 export interface ConfluenceSpace {
