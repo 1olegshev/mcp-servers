@@ -80,6 +80,29 @@ export class JiraClient {
     }
   }
 
+  async getBoardFilterJql(boardId: number): Promise<string> {
+    try {
+      // Get board configuration to read filter reference
+      const cfgRes = await this.client.get(`/rest/agile/1.0/board/${boardId}/configuration`, {
+        baseURL: this.config.baseUrl
+      });
+      const filterId = cfgRes.data?.filter?.id;
+      if (!filterId) {
+        throw new Error('Board filter not found');
+      }
+
+      // Resolve filter to JQL
+      const filterRes = await this.client.get(`/filter/${filterId}`);
+      const jql = filterRes.data?.jql as string;
+      if (!jql) {
+        throw new Error('Filter JQL is empty');
+      }
+      return jql;
+    } catch (error: any) {
+      throw new Error(`Failed to get board filter JQL: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
   async getBoardIssues(boardId: number, maxResults: number = 50): Promise<JiraSearchResult> {
     try {
       const response = await this.client.get(`/rest/agile/1.0/board/${boardId}/issue`, {

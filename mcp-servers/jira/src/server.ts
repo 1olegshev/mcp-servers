@@ -28,6 +28,13 @@ class JiraMCPServer {
     'corporate': 'labels in (corporate-learning, coreteamx, KahootX)'
   };
 
+  // Domain JQL mappings for deployment slices
+  private readonly DOMAIN_QUERIES: Record<string, string> = {
+    frontend: '(project = KAHOOT AND labels in (kahoot-frontend))',
+    backend: '(project = BACK)',
+    wordpress: '(project = OPT)'
+  };
+
   constructor() {
     this.server = new Server(
       {
@@ -154,48 +161,33 @@ class JiraMCPServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
+          // Keep the tool list focused on testing progress
           {
-            name: 'get_testing_board_issues',
-            description: 'Get issues from the testing board (defaults to board ID 23)',
+            name: 'get_testing_summary',
+            description: 'Summarize counts for In QA, Testing, Test Passed on board scope, optionally per domain (frontend/backend/wordpress/other). NoTest excluded by default.',
             inputSchema: {
               type: 'object',
               properties: {
-                boardId: { 
-                  type: 'number', 
-                  description: 'Testing board ID (defaults to 23)', 
-                  default: 23
-                },
-                limit: { 
-                  type: 'number', 
-                  description: 'Max issues to return', 
-                  default: 150 
-                }
+                boardId: { type: 'number', description: 'Jira board id', default: 23 },
+                domain: { type: 'string', description: 'all | frontend | backend | wordpress | other', default: 'all' },
+                separateNoTest: { type: 'boolean', description: 'If true, adds a separate NoTest counts block', default: false }
               },
               required: []
             }
           },
           {
-            name: 'search_issues',
-            description: 'Search for Jira issues using JQL. By default excludes NoTest labeled tickets unless includeNoTest is true. Automatically expands team names (e.g., "commercial" → coreteam3, Commercial, commercial).',
+            name: 'get_testing_remaining',
+            description: 'List tickets remaining in testing on board scope. Defaults to status = Testing; configurable to include In QA or Test Passed.',
             inputSchema: {
               type: 'object',
               properties: {
-                jql: { 
-                  type: 'string', 
-                  description: 'JQL query string' 
-                },
-                limit: { 
-                  type: 'number', 
-                  description: 'Max results', 
-                  default: 50 
-                },
-                includeNoTest: {
-                  type: 'boolean',
-                  description: 'Include tickets with NoTest labels (default: false)',
-                  default: false
-                }
+                boardId: { type: 'number', description: 'Jira board id', default: 23 },
+                domain: { type: 'string', description: 'all | frontend | backend | wordpress | other', default: 'all' },
+                statuses: { type: 'array', description: 'Statuses to include (e.g., ["Testing"])', items: { type: 'string' }, default: ['Testing'] },
+                limit: { type: 'number', description: 'Max results to list', default: 50 },
+                separateNoTest: { type: 'boolean', description: 'If true, shows a separate section for NoTest items in same scope', default: false }
               },
-              required: ['jql']
+              required: []
             }
           },
           {
@@ -223,6 +215,30 @@ class JiraMCPServer {
             }
           },
           {
+            name: 'search_issues',
+            description: 'Search for Jira issues using JQL. By default excludes NoTest labeled tickets unless includeNoTest is true. Automatically expands team names (e.g., "commercial" → coreteam3, Commercial, commercial).',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                jql: { 
+                  type: 'string', 
+                  description: 'JQL query string' 
+                },
+                limit: { 
+                  type: 'number', 
+                  description: 'Max results', 
+                  default: 50 
+                },
+                includeNoTest: {
+                  type: 'boolean',
+                  description: 'Include tickets with NoTest labels (default: false)',
+                  default: false
+                }
+              },
+              required: ['jql']
+            }
+          },
+          {
             name: 'get_issue_details',
             description: 'Get detailed information about a specific issue',
             inputSchema: {
@@ -234,20 +250,6 @@ class JiraMCPServer {
                 }
               },
               required: ['issueKey']
-            }
-          },
-          {
-            name: 'get_boards',
-            description: 'List all available Jira boards',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                limit: { 
-                  type: 'number', 
-                  description: 'Max boards to return', 
-                  default: 20 
-                }
-              }
             }
           }
         ]
@@ -270,6 +272,10 @@ class JiraMCPServer {
             return await this.getIssueDetails((args as any)?.issueKey);
           case 'get_boards':
             return await this.getBoards();
+          case 'get_testing_summary':
+            return await this.getTestingSummary((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.separateNoTest ?? false);
+          case 'get_testing_remaining':
+            return await this.getTestingRemaining((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.statuses ?? ['Testing'], (args as any)?.limit ?? 50, (args as any)?.separateNoTest ?? false);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -282,6 +288,134 @@ class JiraMCPServer {
         };
       }
     });
+  }
+
+  private buildDomainJql(domain: string): string {
+    const d = (domain || 'all').toLowerCase();
+    if (d === 'all') return '';
+    if (d in this.DOMAIN_QUERIES) return this.DOMAIN_QUERIES[d];
+    if (d === 'other') {
+      // NOT (backend OR wordpress OR frontend)
+      const notExpr = `NOT ((project = BACK) OR (project = OPT) OR (project = KAHOOT AND labels in (kahoot-frontend)))`;
+      return `(${notExpr})`;
+    }
+    // Unknown domain: return empty (no domain filter) to avoid breaking
+    return '';
+  }
+
+  private buildStatusesJql(statuses: string[]): string {
+    const list = (statuses || []).map(s => `"${s}"`).join(', ');
+    return list ? `(status in (${list}))` : '';
+  }
+
+  private joinJql(parts: string[]): string {
+    const filtered = parts.map(p => p.trim()).filter(Boolean);
+    if (filtered.length === 0) return '';
+    return filtered.map(p => `(${p})`).join(' AND ');
+  }
+
+  private async getTestingSummary(boardId: number, domain: string, separateNoTest: boolean) {
+    try {
+      const baseJql = await this.jira.getBoardFilterJql(boardId);
+      const domainJql = this.buildDomainJql(domain);
+      const statuses = ['In QA', 'Testing', 'Test Passed'];
+      const statusJql = this.buildStatusesJql(statuses);
+
+      // Build JQL without NoTest first
+      const scopedJql = this.joinJql([baseJql, domainJql, statusJql]);
+      const filteredJql = this.addNoTestFilter(scopedJql, false);
+
+      // Fetch issues up to a reasonable cap and count client-side
+      const results = await this.jira.searchIssues(filteredJql, 200);
+      const issues = results.issues || [];
+      const counts = { inqa: 0, testing: 0, passed: 0 };
+      for (const issue of issues) {
+        const s = issue.fields.status?.name || '';
+        if (s === 'In QA') counts.inqa++;
+        else if (s === 'Testing') counts.testing++;
+        else if (s === 'Test Passed') counts.passed++;
+      }
+      const total = counts.inqa + counts.testing + counts.passed;
+
+      let lines: string[] = [];
+      const label = domain === 'all' ? 'Overall' : domain.charAt(0).toUpperCase() + domain.slice(1);
+      lines.push(`• ${label}: In QA ${counts.inqa} | Testing ${counts.testing} | Test Passed ${counts.passed} | Total ${total}`);
+
+      if (domain === 'all') {
+        // Add per-domain lines
+        for (const d of ['frontend', 'backend', 'wordpress', 'other']) {
+          const dj = this.buildDomainJql(d);
+          const j = this.joinJql([baseJql, dj, statusJql]);
+          const jf = this.addNoTestFilter(j, false);
+          const res = await this.jira.searchIssues(jf, 200);
+          const c = { inqa: 0, testing: 0, passed: 0 };
+          for (const issue of res.issues || []) {
+            const s = issue.fields.status?.name || '';
+            if (s === 'In QA') c.inqa++;
+            else if (s === 'Testing') c.testing++;
+            else if (s === 'Test Passed') c.passed++;
+          }
+          const t = c.inqa + c.testing + c.passed;
+          const name = d.charAt(0).toUpperCase() + d.slice(1);
+          lines.push(`  - ${name}: In QA ${c.inqa} | Testing ${c.testing} | Test Passed ${c.passed} | Total ${t}`);
+        }
+      }
+
+      if (separateNoTest) {
+        const noTestJql = this.joinJql([baseJql, domainJql, statusJql, `labels in (${this.NO_TEST_LABELS.join(', ')})`]);
+        const noTestRes = await this.jira.searchIssues(noTestJql, 200);
+        const n = { inqa: 0, testing: 0, passed: 0 };
+        for (const issue of noTestRes.issues || []) {
+          const s = issue.fields.status?.name || '';
+          if (s === 'In QA') n.inqa++;
+          else if (s === 'Testing') n.testing++;
+          else if (s === 'Test Passed') n.passed++;
+        }
+        const t = n.inqa + n.testing + n.passed;
+        lines.push(`• NoTest (separate): In QA ${n.inqa} | Testing ${n.testing} | Test Passed ${n.passed} | Total ${t}`);
+      }
+
+      return this.formatSuccessResponse('Testing summary', lines.join('\n'));
+    } catch (error: any) {
+      throw new Error(`Failed to get testing summary: ${error.message}`);
+    }
+  }
+
+  private async getTestingRemaining(boardId: number, domain: string, statuses: string[], limit: number, separateNoTest: boolean) {
+    if (!Array.isArray(statuses) || statuses.length === 0) {
+      statuses = ['Testing'];
+    }
+    try {
+      const baseJql = await this.jira.getBoardFilterJql(boardId);
+      const domainJql = this.buildDomainJql(domain);
+      const statusJql = this.buildStatusesJql(statuses);
+      const scopedJql = this.joinJql([baseJql, domainJql, statusJql]);
+
+      const filteredJql = this.addNoTestFilter(scopedJql, false);
+      const results = await this.jira.searchIssues(filteredJql, limit);
+
+      if ((results.issues || []).length === 0) {
+        return this.formatErrorResponse('No tickets found for the requested testing scope');
+      }
+
+      const list = this.formatIssueList(results.issues);
+      let message = `Found ${(results.issues || []).length} ticket(s) in ${statuses.join(', ')}${domain !== 'all' ? ` (${domain})` : ''}`;
+      let content = list;
+
+      if (separateNoTest) {
+        const noTestJql = this.joinJql([baseJql, domainJql, statusJql, `labels in (${this.NO_TEST_LABELS.join(', ')})`]);
+        const noTestRes = await this.jira.searchIssues(noTestJql, Math.max(10, limit));
+        const noTestList = (noTestRes.issues || []).length > 0 ? this.formatIssueList(noTestRes.issues) : 'None';
+        content = `${content}
+
+NoTest (separate):
+${noTestList}`;
+      }
+
+      return this.formatSuccessResponse(message, content);
+    } catch (error: any) {
+      throw new Error(`Failed to get testing remaining: ${error.message}`);
+    }
   }
 
   private async getTestingBoardIssues(boardId: number, limit: number) {

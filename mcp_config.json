@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "slack": {
-      "command": "node",
-      "args": ["/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack/server.js"],
+      "command": "npm",
+      "args": ["run", "start"],
+      "cwd": "/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack",
       "env": {
         "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
         "SLACK_APP_TOKEN": "${SLACK_APP_TOKEN}"
