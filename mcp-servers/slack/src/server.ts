@@ -7,11 +7,11 @@ import { ErrorCode, McpError, CallToolRequestSchema, ListToolsRequestSchema } fr
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { SlackXOXCClient } from './slack-http-client.js';
 
-// Load environment variables from repo root (two levels up from this file)
+// Load environment variables from repo root
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// When compiled, __dirname points to .../slack/dist, so go up three levels to repo root
 const envPath = path.resolve(__dirname, '../../../.env');
 dotenv.config({ path: envPath });
 
@@ -30,6 +30,7 @@ interface ToolArgs {
 export class SlackMCPServer {
   private server: Server;
   private slack: WebClient;
+  private xoxcClient: SlackXOXCClient | null = null;
   private userCache: Map<string, any> = new Map();
 
   constructor() {
@@ -50,14 +51,27 @@ export class SlackMCPServer {
   }
 
   private initializeSlack(): WebClient {
-    const token = process.env.SLACK_BOT_TOKEN;
-    if (!token) {
-      throw new McpError(
-        ErrorCode.InvalidRequest,
-        'SLACK_BOT_TOKEN environment variable is required'
-      );
+    const xoxc = process.env.SLACK_MCP_XOXC_TOKEN;
+    const xoxd = process.env.SLACK_MCP_XOXD_TOKEN;
+    const teamId = process.env.SLACK_TEAM_ID;
+    const legacyBot = process.env.SLACK_BOT_TOKEN;
+    
+    if (xoxc) {
+      // Create custom XOXC client for session-based authentication
+      this.xoxcClient = new SlackXOXCClient(xoxc, xoxd, teamId);
+      
+      // Also create a standard WebClient as fallback for reading operations
+      return new WebClient(xoxc);
     }
-    return new WebClient(token);
+
+    if (legacyBot) {
+      return new WebClient(legacyBot);
+    }
+
+    throw new McpError(
+      ErrorCode.InvalidRequest,
+      'Missing Slack auth. Provide SLACK_MCP_XOXC_TOKEN (+ SLACK_MCP_XOXD_TOKEN) or SLACK_BOT_TOKEN.'
+    );
   }
 
   private setupHandlers(): void {
@@ -293,17 +307,36 @@ export class SlackMCPServer {
 
     try {
       const conversation = await this.resolveConversation(channel);
-      const result = await this.slack.chat.postMessage({
-        channel: conversation,
-        text,
-        thread_ts,
-      });
+      
+      let result: any;
+      
+      // If we have XOXC client, use it exclusively (no WebClient fallback for writes)
+      if (this.xoxcClient) {
+        // Build params object, only include thread_ts if it's provided and valid
+        const params: any = {
+          channel: conversation,
+          text,
+        };
+        
+        if (thread_ts && thread_ts.trim()) {
+          params.thread_ts = thread_ts;
+        }
+        
+        result = await this.xoxcClient.chatPostMessage(params);
+      } else {
+        // Use standard WebClient only if no XOXC client available
+        result = await this.slack.chat.postMessage({
+          channel: conversation,
+          text,
+          thread_ts,
+        });
+      }
 
       return {
         content: [
           {
             type: 'text',
-            text: `Message sent successfully. Channel: ${conversation}, ts: ${(result as any).ts}`,
+            text: `Message sent successfully. Channel: ${conversation}, ts: ${result.ts}`,
           },
         ],
       };
@@ -364,10 +397,30 @@ export class SlackMCPServer {
 
     try {
       const conversation = await this.resolveConversation(channel);
-      const result = (await this.slack.conversations.history({
-        channel: conversation,
-        limit,
-      })) as ConversationsHistoryResponse;
+      
+      let result: any;
+      
+      // Try custom XOXC client first if available, fallback to WebClient
+      if (this.xoxcClient) {
+        try {
+          result = await this.xoxcClient.conversationsHistory({
+            channel: conversation,
+            limit,
+          });
+        } catch (error: any) {
+          // Fallback to standard WebClient
+          result = (await this.slack.conversations.history({
+            channel: conversation,
+            limit,
+          })) as ConversationsHistoryResponse;
+        }
+      } else {
+        // Use standard WebClient directly
+        result = (await this.slack.conversations.history({
+          channel: conversation,
+          limit,
+        })) as ConversationsHistoryResponse;
+      }
 
       let userMap: Record<string, { display: string }> = {};
       if (resolve_users) {
@@ -387,7 +440,7 @@ export class SlackMCPServer {
             type: 'text',
             text: `Last ${messages.length} messages from ${conversation}:\n${messages
               .map(
-                (msg) =>
+                (msg: any) =>
                   `[${new Date(parseFloat(msg.timestamp) * 1000).toLocaleString()}] ${msg.user}: ${msg.text}`
               )
               .join('\n')}`,
@@ -449,13 +502,26 @@ export class SlackMCPServer {
         'channel, timestamp, and name are required'
       );
     }
+    
     try {
       const conversation = await this.resolveConversation(channel);
-      await this.slack.reactions.add({
-        channel: conversation,
-        timestamp,
-        name,
-      });
+      
+      // If we have XOXC client, use it exclusively (no WebClient fallback for writes)
+      if (this.xoxcClient) {
+        await this.xoxcClient.reactionsAdd({
+          channel: conversation,
+          timestamp,
+          name,
+        });
+      } else {
+        // Use standard WebClient only if no XOXC client available
+        await this.slack.reactions.add({
+          channel: conversation,
+          timestamp,
+          name,
+        });
+      }
+      
       return {
         content: [
           { type: 'text', text: `Added :${name}: to ${conversation} at ${timestamp}` },

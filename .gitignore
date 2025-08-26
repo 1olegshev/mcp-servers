@@ -7,6 +7,9 @@ node_modules/
 *.env.local
 *.env.production
 
+# MCP Configuration with sensitive tokens
+.vscode/mcp.json
+
 # API Keys and secrets
 *.key
 *.pem
@@ -30,7 +33,6 @@ build/
 */build/
 
 # IDE/Editor files
-.vscode/
 .idea/
 *.swp
 *.swo
