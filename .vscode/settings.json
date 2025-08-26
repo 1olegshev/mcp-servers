@@ -1,0 +1,33 @@
+{
+  "mcp": {
+    "servers": {
+      "slack": {
+        "command": "node",
+        "args": ["mcp-servers/slack/server.js"],
+        "env": {
+          "SLACK_BOT_TOKEN": "${env:SLACK_BOT_TOKEN}"
+        }
+      },
+      "jira": {
+        "command": "npm",
+        "args": ["start"],
+        "cwd": "mcp-servers/jira",
+        "env": {
+          "ATLASSIAN_API_TOKEN": "${env:ATLASSIAN_API_TOKEN}",
+          "ATLASSIAN_EMAIL": "${env:ATLASSIAN_EMAIL}",
+          "ATLASSIAN_DOMAIN": "${env:ATLASSIAN_DOMAIN}"
+        }
+      },
+      "confluence": {
+        "command": "npm",
+        "args": ["start"],
+        "cwd": "mcp-servers/confluence",
+        "env": {
+          "ATLASSIAN_API_TOKEN": "${env:ATLASSIAN_API_TOKEN}",
+          "ATLASSIAN_EMAIL": "${env:ATLASSIAN_EMAIL}",
+          "ATLASSIAN_DOMAIN": "${env:ATLASSIAN_DOMAIN}"
+        }
+      }
+    }
+  }
+}

@@ -12,7 +12,17 @@ export class SlackXOXCClient {
   constructor(xoxc: string, xoxd?: string, teamId?: string) {
     this.xoxc = xoxc;
     this.xoxd = xoxd;
-    this.teamId = teamId;
+    // Extract team ID from XOXC token if not provided
+    this.teamId = teamId || this.extractTeamIdFromToken(xoxc);
+  }
+
+  private extractTeamIdFromToken(token: string): string | undefined {
+    // XOXC tokens have format: xoxc-{team_id}-{user_id}-{timestamp}-{hash}
+    const parts = token.split('-');
+    if (parts.length >= 2 && parts[0] === 'xoxc') {
+      return parts[1];
+    }
+    return undefined;
   }
 
   private buildHeaders(): Record<string, string> {
@@ -23,6 +33,7 @@ export class SlackXOXCClient {
 
     // Add session cookie if XOXD token is available
     if (this.xoxd) {
+      // URL decode the XOXD token before using it as cookie value
       const decodedXoxd = decodeURIComponent(this.xoxd);
       headers['Cookie'] = `d=${decodedXoxd}`;
     }
@@ -69,8 +80,16 @@ export class SlackXOXCClient {
     return this.callAPI('auth.test', {});
   }
 
-  async conversationsHistory(params: { channel: string; limit?: number }) {
+  async conversationsHistory(params: { channel: string; limit?: number; oldest?: string; latest?: string }) {
     return this.callAPI('conversations.history', params);
+  }
+
+  async conversationsList(params: { types?: string; limit?: number; cursor?: string; exclude_archived?: boolean }) {
+    return this.callAPI('conversations.list', params);
+  }
+
+  async conversationsReplies(params: { channel: string; ts: string; limit?: number }) {
+    return this.callAPI('conversations.replies', params);
   }
 
   async chatPostMessage(params: { channel: string; text: string; thread_ts?: string }) {
