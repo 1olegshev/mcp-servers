@@ -1,0 +1,270 @@
+# Slack MCP Server - AI Agent Documentation
+
+## 🎯 Project Overview
+
+This is a **Model Context Protocol (MCP) server** that provides Slack integration for release management and QA coordination. The project follows a **clean, modular architecture** with proper separation of concerns.
+
+### 🎪 Core Purpose
+- **Release Management**: Analyze release readiness from Slack channels
+- **QA Coordination**: Monitor test results and blocking issues
+- **Communication**: Send messages and interact with Slack workspace
+
+## 📁 Architecture & File Structure
+
+```
+src/
+├── server.ts                 # 🚀 Main orchestrator (50 lines)
+├── auth/
+│   └── slack-auth.ts        # 🔐 Authentication management
+├── clients/
+│   └── slack-client.ts      # 🌐 Slack API wrapper
+├── services/                # 🏢 Business logic layer
+│   ├── issue-detector.ts    # 🔍 Find blocking/critical issues
+│   ├── test-analyzer.ts     # 🧪 Analyze auto test results
+│   └── release-analyzer.ts  # 📊 Release status decisions
+├── handlers/                # 🎛️ MCP tool handlers
+│   ├── base-handler.ts      # 🏗️ Common patterns
+│   ├── messaging.ts         # 💬 Communication tools
+│   └── analysis.ts          # 📈 Analysis tools
+├── utils/                   # 🛠️ Utility functions
+│   ├── resolvers.ts         # 🔗 Channel/user resolution
+│   ├── analyzers.ts         # 🕵️ Text analysis
+│   └── date-utils.ts        # 📅 Date handling
+└── types/
+    └── index.ts             # 📋 TypeScript definitions
+```
+
+## 🏗️ Architecture Patterns
+
+### 1. **Dependency Injection Pattern**
+```typescript
+// Services are injected into handlers
+constructor(
+  private issueDetector: IssueDetectorService,
+  private testAnalyzer: TestAnalyzerService,
+  private releaseAnalyzer: ReleaseAnalyzerService
+) {}
+```
+
+### 2. **Singleton Pattern** (Authentication)
+```typescript
+// SlackAuth is a singleton to ensure single client instance
+SlackAuth.getInstance().initializeClient();
+```
+
+### 3. **Strategy Pattern** (Error Handling)
+```typescript
+// BaseHandler provides consistent error handling
+protected handleError(error: any, operation: string): never
+```
+
+### 4. **Factory Pattern** (Client Creation)
+```typescript
+// Different auth methods create appropriate clients
+if (xoxc) return createXOXCWebClient(xoxc, xoxd);
+if (legacyBot) return new WebClient(legacyBot);
+```
+
+## 🔧 Key Components Guide
+
+### 🚀 **server.ts** - Main Orchestrator
+- **Purpose**: Entry point, service initialization, tool routing
+- **Key Methods**: `initializeServices()`, `setupHandlers()`
+- **Dependencies**: All handlers and services
+- **Size**: ~180 lines (clean and focused)
+
+### 🔐 **auth/slack-auth.ts** - Authentication
+- **Purpose**: Manage XOXC/XOXD session-based authentication
+- **Pattern**: Singleton for global auth state
+- **Key Methods**: `initializeClient()`, `validateWriteAccess()`
+- **Security**: Restricts writes to qa-release-status channel only
+
+### 🌐 **clients/slack-client.ts** - API Wrapper
+- **Purpose**: Clean interface to Slack Web API
+- **Key Methods**: `sendMessage()`, `getChannelHistory()`, `resolveConversation()`
+- **Error Handling**: Converts Slack errors to MCP errors
+- **Dependencies**: SlackAuth, SlackResolver
+
+### 🏢 **Services Layer** (Business Logic)
+
+#### 🔍 **issue-detector.ts**
+- **Purpose**: Find blocking and critical issues in channels
+- **Key Methods**: `findIssues()`, `formatIssuesReport()`
+- **Analysis**: Text pattern matching for severity keywords
+- **Output**: Structured issue reports with JIRA tickets
+
+#### 🧪 **test-analyzer.ts**  
+- **Purpose**: Analyze automated test results and reviews
+- **Key Methods**: `analyzeTestResults()`, `formatTestStatusReport()`
+- **Detection**: Bot message patterns, test status, review threads
+- **Output**: Test status summaries with review status
+
+#### 📊 **release-analyzer.ts**
+- **Purpose**: Generate comprehensive release readiness decisions
+- **Key Methods**: `generateReleaseOverview()`
+- **Logic**: Combines issue and test analysis for final recommendation
+- **Output**: "Can we release today?" with detailed reasoning
+
+### 🎛️ **Handlers Layer** (MCP Interface)
+
+#### 🏗️ **base-handler.ts**
+- **Purpose**: Common patterns for all handlers
+- **Key Methods**: `validateRequired()`, `handleError()`, `formatResponse()`
+- **Pattern**: Template method pattern for consistent behavior
+
+#### 💬 **messaging.ts**
+- **Tools**: `send_message`, `list_channels`, `get_channel_history`, `search_messages`, `add_reaction`, `get_thread_replies`
+- **Validation**: Channel resolution, write access control
+- **Features**: User resolution, message formatting
+
+#### 📈 **analysis.ts**
+- **Tools**: `get_blocking_issues`, `get_auto_test_status`, `get_release_status_overview`
+- **Integration**: Orchestrates service calls
+- **Output**: Formatted analysis reports
+
+### 🛠️ **Utils Layer** (Shared Logic)
+
+#### 🔗 **resolvers.ts**
+- **Purpose**: Convert various Slack identifiers to conversation IDs
+- **Supports**: Channel IDs, user IDs, @username, #channel-name
+- **Caching**: User lookup caching for performance
+- **Key Methods**: `resolveConversation()`, `buildUserMap()`
+
+#### 🕵️ **analyzers.ts**
+- **Purpose**: Text analysis and pattern detection
+- **Key Methods**: `extractTickets()`, `analyzeIssueSeverity()`, `isTestBot()`
+- **Patterns**: JIRA ticket extraction, severity keywords, bot detection
+
+#### 📅 **date-utils.ts**
+- **Purpose**: Date handling and timestamp conversion
+- **Key Methods**: `getDateRange()`, `formatTimestamp()`, `getTodayDateString()`
+- **Format**: Unix timestamp ↔ YYYY-MM-DD conversion
+
+## 🔄 Data Flow
+
+### 1. **Tool Request Flow**
+```
+MCP Client → server.ts → Handler → Service → Client → Slack API
+```
+
+### 2. **Authentication Flow**
+```
+Environment → SlackAuth → WebClient → API Requests
+```
+
+### 3. **Analysis Flow**
+```
+Channel Messages → Text Analysis → Pattern Detection → Business Logic → Report
+```
+
+## 🔧 How to Work with This Project (AI Agent Guide)
+
+### ✅ **Adding New Tools**
+1. **Define tool schema** in `server.ts` tool list
+2. **Add route** in `CallToolRequestSchema` handler
+3. **Create handler method** in appropriate handler file
+4. **Add business logic** in service if needed
+
+### ✅ **Adding New Analysis Features**
+1. **Create analyzer function** in `utils/analyzers.ts`
+2. **Add service method** in appropriate service
+3. **Update handler** to use new service method
+4. **Add tool definition** if exposing to MCP
+
+### ✅ **Modifying Authentication**
+- **File**: `auth/slack-auth.ts`
+- **Singleton pattern**: Always use `getInstance()`
+- **Write restrictions**: Modify `validateWriteAccess()`
+
+### ✅ **Adding New Slack Operations**
+- **File**: `clients/slack-client.ts`
+- **Error handling**: Always wrap in try/catch with McpError
+- **Resolution**: Use resolver for channel/user conversion
+
+### ✅ **Common Modification Patterns**
+
+#### Adding Text Analysis
+```typescript
+// 1. Add to analyzers.ts
+static analyzeNewPattern(text: string): boolean {
+  return text.includes('new-pattern');
+}
+
+// 2. Use in service
+const hasPattern = TextAnalyzer.analyzeNewPattern(message.text);
+```
+
+#### Adding New Service
+```typescript
+// 1. Create service file
+export class NewService {
+  constructor(private slackClient: SlackClient) {}
+  async doSomething(): Promise<Result> { /* logic */ }
+}
+
+// 2. Inject in server.ts
+const newService = new NewService(slackClient);
+```
+
+#### Adding New Tool
+```typescript
+// 1. Add tool definition in server.ts
+{
+  name: 'new_tool',
+  description: 'Does something new',
+  inputSchema: { /* schema */ }
+}
+
+// 2. Add route
+case 'new_tool':
+  return await this.handler.newTool(toolArgs);
+
+// 3. Implement handler method
+async newTool(args: ToolArgs) {
+  // implementation
+}
+```
+
+## 🚨 Critical Guidelines
+
+### ⚠️ **Security**
+- **Write access** is restricted to `qa-release-status` channel only
+- **Authentication** uses XOXC/XOXD session tokens (not bot tokens)
+- **Validation** always validate inputs in handlers
+
+### ⚠️ **Error Handling**
+- **Always** extend BaseHandler for consistent error patterns
+- **Use** McpError for MCP-compatible error responses
+- **Catch** Slack API errors and convert appropriately
+
+### ⚠️ **Performance**
+- **Cache** user lookups in SlackResolver
+- **Limit** message history queries (default 200 messages)
+- **Paginate** large result sets
+
+### ⚠️ **Testing**
+- **Services** are isolated and testable
+- **Mock** SlackClient for service tests
+- **Validate** tool schemas separately
+
+## 🎯 Business Logic Context
+
+### 📊 **Release Decision Logic**
+The system analyzes multiple factors to determine release readiness:
+
+1. **Blocking Issues**: Any issue with "blocker", "blocking", "release blocker" keywords
+2. **Critical Issues**: Issues with "critical", "urgent", "high priority" keywords  
+3. **Auto Tests**: Cypress (Unverified/General) and Playwright test results
+4. **Review Status**: Whether failed tests have been manually reviewed
+
+### 🔍 **Issue Detection Patterns**
+- **JIRA Tickets**: Pattern `/[A-Z]+-\d+/g`
+- **Bot Detection**: Username/text contains automation keywords
+- **Test Status**: Success/failure keywords and emoji patterns
+
+### 💬 **Channel Conventions**
+- **Analysis Source**: `functional-testing` (default)
+- **Write Destination**: `qa-release-status` (restricted)
+- **Test Bots**: Identified by automation-related usernames
+
+This documentation provides AI agents with the context needed to understand, modify, and extend the project effectively while maintaining its clean architecture and business logic integrity.

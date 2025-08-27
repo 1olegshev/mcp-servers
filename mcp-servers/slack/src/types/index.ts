@@ -1,0 +1,84 @@
+/**
+ * Type definitions for Slack MCP Server
+ */
+
+export interface ToolArgs {
+  channel?: string;
+  text?: string;
+  thread_ts?: string;
+  limit?: number;
+  resolve_users?: boolean;
+  query?: string;
+  timestamp?: string;
+  name?: string;
+  types?: string;
+  date?: string;
+  severity?: 'blocking' | 'critical' | 'both';
+}
+
+export interface SlackMessage {
+  user?: string;
+  text?: string;
+  ts?: string;
+  thread_ts?: string;
+  reply_count?: number;
+  username?: string;
+  bot_id?: string;
+  bot_profile?: {
+    name?: string;
+    id?: string;
+  };
+  blocks?: any[];
+  attachments?: any[];
+}
+
+export interface FormattedMessage {
+  user: string;
+  text: string;
+  timestamp: string;
+  thread_ts?: string;
+}
+
+export interface Issue {
+  type: 'blocking' | 'critical';
+  text: string;
+  tickets: JiraTicketInfo[];
+  timestamp: string;
+  hasThread: boolean;
+}
+
+export interface JiraTicketInfo {
+  key: string;                    // e.g., "PROJ-123"
+  url?: string;                   // Full URL to ticket
+  project?: string;               // Project key
+  labels?: string[];              // Issue labels
+  components?: string[];          // Issue components
+  status?: string;                // Current status
+  priority?: string;              // Priority level
+}
+
+export interface TestResult {
+  type: string;
+  status: 'passed' | 'failed' | 'pending';
+  text: string;
+  timestamp: string;
+  hasReview: boolean;
+  reviewSummary?: string;
+}
+
+export interface Channel {
+  id: string;
+  name: string;
+  topic: string;
+  purpose: string;
+  num_members?: number;
+}
+
+export interface UserInfo {
+  id: string;
+  name?: string;
+  real_name?: string;
+  profile?: {
+    display_name?: string;
+  };
+}

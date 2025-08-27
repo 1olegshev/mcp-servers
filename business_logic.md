@@ -49,11 +49,27 @@ Enhanced Slack MCP server to analyze daily release readiness based on #functiona
 - `date` (optional): Target date (defaults to today)
 - `channel`: Channel to analyze
 
-**Logic**:
-- Find bot messages with test results (~16:30 CET)
-- Parse test run results (Cypress unverified, general, Playwright)
-- Check thread replies for manual verification of failed tests
-- Determine if failures are release-blocking
+**CRITICAL BUSINESS LOGIC**:
+- **Auto tests run on PREVIOUS date(s)** at ~16:30 CET
+- **For today's release decision**: Look for LATEST/CLOSEST test runs from previous date(s)
+- **Must find complete set**: 2 Cypress runs (unverified + general) + 1 Playwright run
+
+**Enhanced Implementation**:
+- **Bot Detection**: Cypress bot IDs (B067SLP8AR5, B067SMD5MAT), Jenkins patterns
+- **Block Kit Parsing**: Extract test details from Slack's complex message structure
+- **Thread Analysis**: Check replies for manual review conclusions
+- **Status Priority**: "Failed run" overrides individual test "passed" counts
+- **Review Patterns**: "passed after rerun", "fix ready", "not blocking release"
+
+**Output Example**:
+```
+🔬 Latest Test Results (Aug 26, ~16:30 CET):
+• **Cypress (frontend-qa)**: ❌ Run #1022
+  └─ Failed tests: workspace_expired-org-downgrade-individual-subscription_spec.ts, ...
+  └─ ✅ **RESOLVED**: Fix ready, waiting to merge 🙌
+
+✅ **AUTO TEST STATUS: RESOLVED - NOT BLOCKING**
+```
 
 ### 3. `get_blocking_issues`
 **Purpose**: Extract blocking/critical issues
@@ -101,9 +117,21 @@ Enhanced Slack MCP server to analyze daily release readiness based on #functiona
 
 ## Keywords & Patterns
 
-### Bot Detection
-- Auto test bots (need to identify actual bot names)
-- Result posting patterns
+### Bot Detection (IMPLEMENTED)
+- **Cypress Bots**: B067SLP8AR5 (frontend-qa), B067SMD5MAT (frontend-qa-unverified)
+- **Jenkins Patterns**: "kahoot-frontend-player-qa-playwright"
+- **Test Result Patterns**: "run #\d+", "failed run", "test results:", "specs for review"
+
+### Block Kit Message Parsing (IMPLEMENTED)
+- **Extract from blocks**: rich_text sections, context elements, mrkdwn text
+- **Extract from attachments**: title, text, fields, footer content
+- **Failed Test Extraction**: Pattern matching for *_spec.ts, *.test.ts files
+
+### Review Analysis Patterns (IMPLEMENTED)
+- **Resolved**: "manual rerun passed", "fix ready", "passed after rerun", "not blocking"
+- **Under Investigation**: "investigating", "will look", "checking"
+- **Still Failing**: "still fail", "rerun failed", "not fixed"
+- **Release Impact**: "not blocking release", "just the test spec"
 
 ### Issue Severity
 - **Blocking**: "blocker", "blocking", "release blocker", "blocks release"
@@ -113,12 +141,45 @@ Enhanced Slack MCP server to analyze daily release readiness based on #functiona
 - JIRA tickets: `[A-Z]+-\d+` (e.g., PROJ-123)
 - Links to tickets
 
-### Test Result Patterns
-- Success indicators: "passed", "green", "✅", "success"
-- Failure indicators: "failed", "red", "❌", "error", "failure"
-- Pending: "running", "in progress", "pending"
+### Test Result Patterns (ENHANCED)
+- **Success indicators**: "passed run", "green", "✅", "success" (but not when "failed run" present)
+- **Failure indicators**: "failed run", "failed build", "❌", "error" (prioritized)
+- **Pending**: "running", "in progress", "pending"
 
 ## Time Zone Considerations
-- All times in CET/CEST
-- Handle timezone conversion for date filtering
-- Consider Philippines timezone for manual testing timing
+- **Auto tests**: Previous day ~16:30 CET 
+- **Release decision**: Current day (uses previous day's test results)
+- **Manual testing**: 02:00 CET+1 (Philippines team)
+- **Date Range Logic**: Monday looks back to Friday, others to previous day
+
+## Implementation Status
+
+### ✅ COMPLETED (August 27, 2025)
+
+**Core Infrastructure:**
+- ✅ Thread reply reading capability (`get_thread_replies`)
+- ✅ Date filtering utilities (DateUtils with CET timezone logic)
+- ✅ Bot detection patterns (Cypress B067SLP8AR5, B067SMD5MAT)
+
+**Enhanced Analysis:**
+- ✅ `get_auto_test_status` with Block Kit parsing
+- ✅ Message extraction utilities (extractAllMessageText, parseTestResultsFromText)
+- ✅ Thread analysis for review status detection
+- ✅ Bot message detection and analysis tools (`find_bot_messages`, `get_message_details`)
+
+**Validation:**
+- ✅ Tested with real Cypress bot messages (Run #1022, #964)
+- ✅ Verified thread analysis (manual rerun conclusions, fix status)
+- ✅ Posted accurate status to #qa-release-status channel
+
+### 🔄 NEXT STEPS
+
+**Missing Tools:**
+- ⏳ `get_blocking_issues` - Extract JIRA tickets and severity
+- ⏳ `get_release_status_overview` - Main aggregator tool
+- ⏳ Playwright test detection (no samples found yet)
+
+**Enhancement Needed:**
+- ⏳ Improve date range logic to handle weekends/holidays
+- ⏳ Add manual testing status detection (Philippines team, 02:00 CET+1)
+- ⏳ Integrate JIRA MCP for ticket status verification
