@@ -369,8 +369,7 @@ class JiraMCPServer {
   private async getTestingRemaining(boardId: number, domain: string, statuses: string[], limit: number, separateNoTest: boolean) {
     // Conditional defaults for statuses based on separateNoTest flag
     if (!Array.isArray(statuses) || statuses.length === 0) {
-      // Default to both In QA and Testing for clearer remaining work picture
-      statuses = ['In QA', 'Testing'];
+      statuses = separateNoTest ? ['In QA', 'Testing'] : ['Testing'];
     }
     try {
       let message: string;
@@ -378,24 +377,24 @@ class JiraMCPServer {
 
       if (separateNoTest) {
         // --- Strategy for including NoTest tickets ---
-        // Use board scope JQL + domain JQL for both regular and NoTest buckets
-        const baseJql = await this.jira.getBoardFilterJql(boardId);
+        // Build two project-scoped queries (KAHOOT, BACK, OPT) matching original behavior
         const statusJql = this.buildStatusesJql(statuses);
         const domainJql = this.buildDomainJql(domain);
+        const projectFilterJql = `project in (KAHOOT, BACK, OPT)`;
 
         // 1) Regular (exclude NoTest)
-        const regularJql = this.buildRobustJql([baseJql, domainJql, statusJql], true);
+        const regularJql = this.buildRobustJql([statusJql, domainJql, projectFilterJql], true);
         const regularResults = await this.jira.searchIssues(regularJql, limit);
         const regularList = (regularResults.issues || []).length > 0 ? this.formatIssueList(regularResults.issues) : 'None';
 
         // 2) NoTest-only
-        const noTestLabelsJql = `labels in (${this.NO_TEST_LABELS.map(l => `"${l}"`).join(', ')})`;
-        const noTestJql = this.buildRobustJql([baseJql, domainJql, statusJql, noTestLabelsJql], false);
+        const noTestLabelsJql = `labels in ("${this.NO_TEST_LABELS.join('", "')}")`;
+        const noTestJql = this.buildRobustJql([statusJql, domainJql, noTestLabelsJql, projectFilterJql], false);
         const noTestResults = await this.jira.searchIssues(noTestJql, limit);
         const noTestList = (noTestResults.issues || []).length > 0 ? this.formatIssueList(noTestResults.issues) : 'None';
 
         const totalFound = (regularResults.issues || []).length + (noTestResults.issues || []).length;
-        message = `Found ${totalFound} ticket(s) in ${statuses.join(', ')} on board ${boardId}`;
+        message = `Found ${totalFound} ticket(s) in ${statuses.join(', ')}`;
         content = `Regular tickets (${(regularResults.issues || []).length}):\n${regularList}\n\nNoTest tickets (${(noTestResults.issues || []).length}):\n${noTestList}`;
 
       } else {
@@ -405,8 +404,8 @@ class JiraMCPServer {
         const domainJql = this.buildDomainJql(domain);
         const statusJql = this.buildStatusesJql(statuses);
         
-        // Build the query and explicitly exclude NoTest by default
-        const scopedJql = this.buildRobustJql([baseJql, domainJql, statusJql], true);
+  // Build the query. Assume board JQL handles NoTest, so pass `false`.
+  const scopedJql = this.buildRobustJql([baseJql, domainJql, statusJql], false);
         
         const results = await this.jira.searchIssues(scopedJql, limit);
 
