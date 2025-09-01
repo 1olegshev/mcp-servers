@@ -14,7 +14,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+import fs from 'fs';
 
 interface OverviewArgs {
   jiraTestingSummary?: string;
@@ -30,12 +30,14 @@ interface OverviewArgs {
 
 export class ReleaseCoordinatorServer {
   private server: Server;
+  private mcpConfig: any;
 
   constructor() {
-    // Load root .env so spawned child servers inherit credentials
+    // Load MCP config to get tokens
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+    const mcpConfigPath = path.resolve(__dirname, '../../../.vscode/mcp.json');
+    this.mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
 
     this.server = new Server(
       { name: 'release-coordinator-mcp-server', version: '1.0.0' },
@@ -240,11 +242,16 @@ Notes:
   }
 
   private buildEnv(): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (typeof v === 'string') out[k] = v;
-    }
-    return out;
+    // Use tokens from mcp.json instead of process.env
+    const slackEnv = this.mcpConfig.servers?.slack?.env || {};
+    const jiraEnv = this.mcpConfig.servers?.jira?.env || {};
+    const confluenceEnv = this.mcpConfig.servers?.confluence?.env || {};
+    
+    return {
+      ...slackEnv,
+      ...jiraEnv, 
+      ...confluenceEnv
+    };
   }
 
   async run(): Promise<void> {
