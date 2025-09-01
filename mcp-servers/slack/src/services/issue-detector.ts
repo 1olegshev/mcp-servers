@@ -22,15 +22,45 @@ export class IssueDetectorService {
     severity: 'blocking' | 'critical' | 'both' = 'both',
     messages?: SlackMessage[]
   ): Promise<Issue[]> {
-    // Use provided messages or fetch them with optimized parameters
-    let messagesToAnalyze: SlackMessage[];
+    // Prefer a search-first strategy using severity keywords, then minimal history fallback
+    let messagesToAnalyze: SlackMessage[] = [];
     if (messages) {
       messagesToAnalyze = messages;
     } else {
-      const { oldest, latest } = DateUtils.getDateRange(date);
-      // OPTIMIZATION: Reduce limit from 200 to 50 for today-only queries
-      const limit = date ? 200 : 50; // Less messages for "today" queries
-      messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, limit);
+  const { oldest, latest } = DateUtils.getDateRange(date);
+  const after = new Date(parseFloat(oldest) * 1000);
+  const before = new Date(parseFloat(latest) * 1000);
+  const dayAfter = new Date(before.getTime() + 1); // next day start boundary
+  const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+      // Build severity query
+      const blockingQ = '(blocker OR blocking OR "release blocker" OR "no-go" OR "no go")';
+      const criticalQ = '(critical OR urgent OR "high priority")';
+      const sevQ = severity === 'blocking' ? blockingQ : severity === 'critical' ? criticalQ : `${blockingQ} OR ${criticalQ}`;
+
+      // Use date bounds in search; Slack supports after:/before:
+  // Precise single-day bound: after:DATE before:DATE+1 (Slack search uses date granularity)
+  const q = `${sevQ} after:${fmt(after)} before:${fmt(dayAfter)}`;
+
+      try {
+        const matches = await this.slackClient.searchMessages(q, channel);
+        const seenTs = new Set<string>();
+        for (const m of matches) {
+          const ts = m.ts as string | undefined;
+          if (!ts || seenTs.has(ts)) continue;
+          seenTs.add(ts);
+          try {
+            const full = await this.slackClient.getMessageDetails(channel, ts);
+            messagesToAnalyze.push(full as SlackMessage);
+          } catch {}
+        }
+      } catch {}
+
+      // Fallback to minimal history if no matches
+      if (messagesToAnalyze.length === 0) {
+        const limit = 200; // small window for the day only
+        messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, limit);
+      }
     }
     
     const issues: Issue[] = [];
@@ -56,14 +86,23 @@ export class IssueDetectorService {
     // Determine if the issue should be included based on its type and the requested severity
     if (issueAnalysis.type !== 'none' && this.shouldIncludeIssue(issueAnalysis.type, severity)) {
       const tickets = TextAnalyzer.extractTickets(text, this.jiraBaseUrl);
+      // Deduplicate tickets by key
+      const seen = new Set<string>();
+      const dedupedTickets = tickets.filter(t => {
+        if (seen.has(t.key)) return false;
+        seen.add(t.key);
+        return true;
+      });
+      const permalink = await this.slackClient.getPermalink(channel, message.ts!);
       
       issues.push({
         type: issueAnalysis.type,
         text: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
-        tickets,
+        tickets: dedupedTickets,
         timestamp: message.ts!,
         hasThread: !!message.thread_ts || (message.reply_count || 0) > 0,
         resolutionText: issueAnalysis.resolutionText,
+        permalink,
       });
     }
   }
@@ -104,34 +143,49 @@ export class IssueDetectorService {
     channel: string, 
     text: string
   ): Promise<{ type: 'blocking' | 'critical' | 'blocking_resolved' | 'none', resolutionText?: string }> {
-    
     const hasNoGoReaction = await this.checkForNoGoReaction(message, channel);
     const { isBlocking: textBlocking, isCritical: textCritical } = TextAnalyzer.analyzeIssueSeverity(text);
-    
-    const isPotentiallyBlocking = textBlocking || hasNoGoReaction || this.hasBlockingIndicators(text);
-    const isPotentiallyCritical = textCritical || this.hasCriticalIndicators(text);
 
-    if (!isPotentiallyBlocking && !isPotentiallyCritical) {
+    // Initial signals from the parent message
+    let indicatedBlocking = textBlocking || hasNoGoReaction || this.hasBlockingIndicators(text);
+    let indicatedCritical = textCritical || this.hasCriticalIndicators(text);
+
+    // If parent text has no severity signals, look into the thread for severity words (e.g., "blocker" in replies)
+    let threadSeverity: Awaited<ReturnType<IssueDetectorService['analyzeThreadForSeverity']>> = {
+      hasBlockingConsensus: false,
+      hasCriticalConsensus: false,
+      hasResolutionConsensus: false,
+    };
+    if (!indicatedBlocking && !indicatedCritical && (message.thread_ts || (message.reply_count || 0) > 0)) {
+      try {
+        const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
+        const threadText = replies.map(r => r.text || '').join(' ').toLowerCase();
+        // Reuse existing helpers on combined thread text
+        indicatedBlocking = this.hasBlockingIndicators(threadText) || /\bblock(er|ing)\b/.test(threadText);
+        // Use negation-aware critical detection only; avoid naive keyword match
+        indicatedCritical = this.hasCriticalIndicators(threadText);
+      } catch {}
+    }
+
+    // If still nothing indicates an issue, early return
+    if (!indicatedBlocking && !indicatedCritical) {
       return { type: 'none' };
     }
 
-    // If there's a thread, check for resolution context
+    // If there's a thread, analyze it for resolution signals regardless of whether severity came from parent or thread
     if (message.thread_ts || (message.reply_count || 0) > 0) {
-      const threadAnalysis = await this.analyzeThreadForSeverity(message, channel);
-      
-      if (isPotentiallyBlocking && threadAnalysis.hasResolutionConsensus) {
-        return { type: 'blocking_resolved', resolutionText: threadAnalysis.resolutionText };
+      threadSeverity = await this.analyzeThreadForSeverity(message, channel);
+      if (indicatedBlocking && threadSeverity.hasResolutionConsensus) {
+        return { type: 'blocking_resolved', resolutionText: threadSeverity.resolutionText };
       }
     }
-    
-    if (isPotentiallyBlocking) {
+
+    if (indicatedBlocking) {
       return { type: 'blocking' };
     }
-    
-    if (isPotentiallyCritical) {
+    if (indicatedCritical) {
       return { type: 'critical' };
     }
-
     return { type: 'none' };
   }
 
@@ -140,22 +194,51 @@ export class IssueDetectorService {
    */
   private hasBlockingIndicators(text: string): boolean {
     const lowerText = text.toLowerCase();
-    
-    return lowerText.includes('@test-managers') ||
-           lowerText.includes('hotfix') ||
-           /block(ing|er|s)/i.test(text) ||
-           /no.?go/i.test(text);
+    // Accept explicit signals or release/deploy contexts only; avoid generic 'blocks' (e.g., UI blocks)
+    const explicit = /\b(blocker|blocking)\b/i.test(text) || /release\s*blocker/i.test(text);
+    const releaseContext = /(\bblock(s)?\b|\bblocking\b).*\b(release|deploy(?:ment)?|prod(?:uction)?)\b/i.test(lowerText);
+    const noGo = /no[-_\s]?go/i.test(lowerText);
+    return lowerText.includes('@test-managers') || lowerText.includes('hotfix') || explicit || releaseContext || noGo;
   }
 
   /**
    * Check for critical indicators in text
    */
   private hasCriticalIndicators(text: string): boolean {
-    const lowerText = text.toLowerCase();
+    const lower = (text || '').toLowerCase();
+
+    // Negative/mitigating signals (any of these should cancel a positive match)
+    const negativeSignals = [
+      /\bnot\s+(a\s+)?(super\s+)?high\s+priority\b/i,
+      /\bnot\s+urgent\b/i,
+      /\bnot\s+critical\b/i,
+      /\blow\s+priority\b/i,
+      /\bno\s+need\s+to\s+tackle\s+immediately\b/i,
+      /\bnot\s+.*tackle\s+immediately\b/i,
+      /\bnot\s+immediate(ly)?\b/i,
+    ];
+
+    const hasNegative = negativeSignals.some(re => re.test(lower));
+
+    // Positive signals
+    const positiveSignals = [
+      // "this is critical" / "critical issue" / standalone critical (but not within "not critical")
+      /\bcritical(?!\s*path)\b/i,
+      /\burgent\b/i,
+      /\bhigh\s+priority\b/i,
+    ];
+
+    const hasPositive = positiveSignals.some(re => re.test(lower));
+
+    // Only treat as critical if there's a positive indicator and no negation nearby
+    if (!hasPositive) return false;
+    if (hasNegative) return false;
     
-    return lowerText.includes('critical') ||
-           lowerText.includes('urgent') ||
-           lowerText.includes('high priority');
+    // Additional windowed negation check: "not ... (critical|urgent|high priority)" within ~4 words
+    const windowNegation = /\b(?:not|isn['’]?t|no|doesn['’]?t(?:\s+have)?)\b(?:\W+\w+){0,4}\W+(?:critical|urgent|high\s+priority)\b/i.test(lower);
+    if (windowNegation) return false;
+
+    return true;
   }
 
   /**
@@ -178,15 +261,17 @@ export class IssueDetectorService {
       }).join(' ').toLowerCase();
       
       const hasBlockingConsensus = 
-        /this.*is.*a?.*block(er|ing)/i.test(allThreadText) ||
-        /blocking.*release/i.test(allThreadText) ||
-        /should.*block/i.test(allThreadText) ||
+        /\b(blocker|blocking)\b/.test(allThreadText) ||
+        /(block|blocks|blocking).*\b(release|deploy(?:ment)?|prod(?:uction)?)\b/.test(allThreadText) ||
         allThreadText.includes('hotfix') ||
-        allThreadText.includes('@test-managers');
+        allThreadText.includes('@test-managers') ||
+        // consider reactions like :no-go: on replies as blocking signals
+        replies.some(r => (r.reactions || []).some(rx => /no[-_ ]?go/i.test(rx.name)));
       
-      const hasCriticalConsensus = 
-        /this.*is.*critical/i.test(allThreadText) ||
-        /critical.*issue/i.test(allThreadText);
+      // Negation-aware critical consensus
+      const criticalPositive = /\b(this\s+is\s+)?critical(?!\s*path)\b|\burgent\b|\bhigh\s+priority\b/i.test(allThreadText);
+      const criticalNegative = /\bnot\s+(a\s+)?(super\s+)?high\s+priority\b|\bnot\s+critical\b|\bnot\s+urgent\b|\blow\s+priority\b|\bnot\s+.*tackle\s+immediately\b|\bno\s+need\s+to\s+tackle\s+immediately\b|\bnot\s+immediate(ly)?\b/i.test(allThreadText);
+      const hasCriticalConsensus = criticalPositive && !criticalNegative;
       
       const hasResolutionConsensus = !!resolutionText;
       
@@ -197,10 +282,10 @@ export class IssueDetectorService {
   }
 
   formatIssuesReport(issues: Issue[], date?: string, channel = 'functional-testing'): string {
-    const blockingIssues = issues.filter(i => i.type === 'blocking');
-    const criticalIssues = issues.filter(i => i.type === 'critical');
+  const blockingIssues = issues.filter(i => i.type === 'blocking');
+  const criticalIssues = issues.filter(i => i.type === 'critical');
     
-    let output = `🔍 Issue Analysis for ${date || 'today'} in #${channel}:\n\n`;
+  let output = `🔍 Issue Analysis for ${date || 'today'} in #${channel}:\n\n`;
     
     // Summary line
     const summary = [];
@@ -208,21 +293,27 @@ export class IssueDetectorService {
     if (criticalIssues.length > 0) summary.push(`${criticalIssues.length} critical`);
     
     if (summary.length > 0) {
-      output += `� **Summary**: ${summary.join(', ')} found\n\n`;
+      output += `• **Summary**: ${summary.join(', ')} found\n\n`;
     }
     
     if (blockingIssues.length > 0) {
-      output += `�🚨 **BLOCKING ISSUES** (${blockingIssues.length}):\n`;
+      output += `🚨 **BLOCKING ISSUES** (${blockingIssues.length}):\n`;
       output += `*Issues that block release deployment*\n\n`;
       
       blockingIssues.forEach((issue, i) => {
         output += `**${i + 1}. Blocker Report**\n`;
         output += `${issue.text}\n`;
         output += `⏰ ${DateUtils.formatTimestamp(issue.timestamp)}\n`;
+        if (issue.permalink) {
+          const label = issue.hasThread ? 'Open thread' : 'Open message';
+          output += `🔗 <${issue.permalink}|${label}>\n`;
+        }
         
         if (issue.tickets.length > 0) {
+          // Safety dedup at presentation time
+          const uniq = new Map(issue.tickets.map(t => [t.key, t]));
           output += `🎫 **Related Tickets**:\n`;
-          issue.tickets.forEach(ticket => {
+          Array.from(uniq.values()).forEach(ticket => {
             const projectText = ticket.project ? ` | 📁 ${ticket.project}` : '';
             const linkText = ticket.url ? ` | 🔗 [Open](${ticket.url})` : '';
             output += `   • **${ticket.key}**${projectText}${linkText}\n`;
@@ -245,10 +336,15 @@ export class IssueDetectorService {
         output += `**${i + 1}. Critical Report**\n`;
         output += `${issue.text}\n`;
         output += `⏰ ${DateUtils.formatTimestamp(issue.timestamp)}\n`;
+        if (issue.permalink) {
+          const label = issue.hasThread ? 'Open thread' : 'Open message';
+          output += `🔗 <${issue.permalink}|${label}>\n`;
+        }
         
         if (issue.tickets.length > 0) {
+          const uniq = new Map(issue.tickets.map(t => [t.key, t]));
           output += `🎫 **Related Tickets**:\n`;
-          issue.tickets.forEach(ticket => {
+          Array.from(uniq.values()).forEach(ticket => {
             const projectText = ticket.project ? ` | 📁 ${ticket.project}` : '';
             const linkText = ticket.url ? ` | 🔗 [Open](${ticket.url})` : '';
             output += `   • **${ticket.key}**${projectText}${linkText}\n`;

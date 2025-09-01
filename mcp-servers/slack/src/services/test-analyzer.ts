@@ -337,12 +337,26 @@ export class TestAnalyzerService {
       output += `❓ **AUTO TEST STATUS: NO RECENT RESULTS**\n`;
     } else {
       const allPassed = present.every(t => t.status === 'passed');
-      const allReviewedOrPassed = present.every(
-        t => t.status === 'passed' || (t.status === 'failed' && t.hasReview && (t.reviewSummary?.includes('✅') || /successful/i.test(t.reviewSummary || '')))
+
+      // Consider a failed suite resolved if the thread indicates either:
+      // - explicitly not blocking, or
+      // - rerun success AND (PR opened OR revert planned/applied)
+      const isResolvedFailure = (t: TestResult): boolean => {
+        if (t.status !== 'failed' || !t.hasReview) return false;
+        const summary = (t.reviewSummary || '').toLowerCase();
+        const notBlocking = summary.includes('not blocking');
+        const rerunSuccess = summary.includes('manual rerun successful') || /rerun successful|resolved|fixed/.test(summary);
+        const prOrRevert = summary.includes('pr opened') || summary.includes('revert');
+        return notBlocking || (rerunSuccess && prOrRevert);
+      };
+
+      const allResolvedOrPassed = present.every(
+        t => t.status === 'passed' || isResolvedFailure(t)
       );
+
       if (allPassed && present.length >= 2) {
         output += `✅ **AUTO TEST STATUS: ALL PASSED**\n`;
-      } else if (allReviewedOrPassed) {
+      } else if (allResolvedOrPassed && present.length >= 2) {
         output += `✅ **AUTO TEST STATUS: RESOLVED - NOT BLOCKING**\n`;
       } else {
         output += `⚠️ **AUTO TEST STATUS: ATTENTION REQUIRED**\n`;
