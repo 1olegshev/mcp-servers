@@ -66,6 +66,7 @@ export interface TestResult {
   timestamp: string;
   hasReview: boolean;
   reviewSummary?: string;
+  permalink?: string;
 }
 
 export interface Channel {

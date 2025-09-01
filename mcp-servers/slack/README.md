@@ -112,15 +112,17 @@ npm run build
 
 ### Available Tools
 
-1. **get_release_status_overview** - Comprehensive release readiness analysis
-2. **get_auto_test_status** - Auto test results and review status
-3. **get_blocking_issues** - Critical/blocking issue detection
-4. **get_channel_history** - Read messages from any channel
-5. **send_message** - Post messages (restricted to qa-release-status only)
-6. **list_channels** - List workspace channels
-7. **search_messages** - Search across workspace
-8. **add_reaction** - Add emoji reactions
-9. **get_thread_replies** - Read thread discussions
+1. **get_release_status_overview** – Comprehensive release readiness analysis
+2. **get_auto_test_status** – Auto test results for 3 suites + thread review status
+3. **get_blocking_issues** – Critical/blocking issue detection
+4. **get_channel_history** – Read messages from any channel
+5. **send_message** – Post messages (restricted to qa-release-status only)
+6. **list_channels** – List workspace channels
+7. **search_messages** – Search across workspace
+8. **add_reaction** – Add emoji reactions
+9. **get_thread_replies** – Read thread discussions
+10. **get_message_details** – Fetch full message including blocks/attachments
+11. **find_bot_messages** – Inspect bot messages and extracted text
 
 ### MCP Configuration
 
@@ -185,10 +187,48 @@ echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "se
 
 ```
 src/
-├── server.ts           # Main MCP server implementation
-├── simple-xoxc.ts     # Authentication helper
-└── types.ts           # TypeScript type definitions
+├── server.ts                # MCP server wiring and tool registry
+├── auth/
+│   └── slack-auth.ts        # XOXC/XOXD session auth bootstrap (SlackAuth)
+├── clients/
+│   └── slack-client.ts      # WebClient wrapper (history, replies, search, permalink)
+├── handlers/
+│   ├── messaging.ts         # Tools: send, list, history, search, reactions, get details
+│   └── analysis.ts          # Tools: get_auto_test_status, get_blocking_issues, overview
+├── services/
+│   ├── issue-detector.ts    # Blocking/critical issue detection
+│   ├── release-analyzer.ts  # Orchestrates test + issues into release overview
+│   └── test-analyzer.ts     # Auto test analysis (Cypress/Playwright) + threads
+├── utils/
+│   ├── analyzers.ts         # Text analysis helpers (severity, details)
+│   ├── date-utils.ts        # Monday/prev-day windows, lookback
+│   ├── message-extractor.ts # Blocks/attachments extraction and parsing
+│   └── resolvers.ts         # Channel/user resolve utilities
+└── types/
+    └── index.ts             # Shared types (SlackMessage, TestResult, etc.)
 ```
+
+### Auto Test Analysis Contract
+
+- Suites reported every time:
+  - Cypress (general) – bot_id: B067SLP8AR5
+  - Cypress (unverified) – bot_id: B067SMD5MAT
+  - Playwright (Jenkins) – bot_id: B052372DK4H (fallback by username/text if missing)
+- Time window logic:
+  - Monday: fetch Fri→Sun (inclusive); otherwise: previous day
+  - Uses inclusive history to avoid boundary misses; per-suite latest is selected within the window
+- Parsing and detection:
+  - Blocks and attachments text are extracted and parsed
+  - Playwright marked passed when “Success/PASSED/🟢/green” is present
+  - Threads analyzed for: rerun success, not blocking, still failing, PR opened, revert
+- Output always shows all three suites with status and a Slack permalink to the parent message
+
+### Debugging
+
+- Auto test runs append a debug log under /tmp (e.g., /tmp/slack-debug-<ts>.log) with:
+  - Date range used, relevant message counts, selected messages
+  - Extracted text snippets and parsed fields
+  - Thread analysis outcomes
 
 ### Building
 

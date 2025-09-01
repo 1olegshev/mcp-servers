@@ -100,6 +100,7 @@ export class SlackClient {
         channel: conversation,
         oldest,
         latest,
+        inclusive: true,
         limit,
       });
 
@@ -198,6 +199,17 @@ export class SlackClient {
         ErrorCode.InternalError,
         `Failed to get message details: ${error.data?.error || error.message}`
       );
+    }
+  }
+
+  async getPermalink(channel: string, timestamp: string): Promise<string | undefined> {
+    try {
+      const conversation = await this.resolveConversation(channel);
+      const res = await this.slack.chat.getPermalink({ channel: conversation, message_ts: timestamp } as any);
+      return (res as any).permalink as string | undefined;
+    } catch (error: any) {
+      // Non-fatal; return undefined if we can't resolve the permalink
+      return undefined;
     }
   }
 }

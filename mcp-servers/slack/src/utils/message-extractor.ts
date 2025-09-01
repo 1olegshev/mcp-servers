@@ -239,38 +239,53 @@ export function parseTestResultsFromText(text: string): {
     failedTests: [],
   };
   
+  // Normalize URL-encoded sequences to avoid artifacts like '2flibrary_...'
+  let processed = text;
+  try {
+    // decodeURIComponent can throw if stray %; guard it
+    processed = decodeURIComponent(text);
+  } catch {}
+  processed = processed.replace(/%2F/gi, '/');
+  const textLower = processed.toLowerCase();
+
   // Look for run numbers
-  const runMatch = text.match(/Run #(\d+)/i);
+  const runMatch = processed.match(/Run #(\d+)/i);
   if (runMatch) {
     result.runNumber = runMatch[1];
   }
   
   // Look for test types
-  if (text.toLowerCase().includes('cypress')) {
+  if (textLower.includes('cypress')) {
     result.testType = 'cypress';
-  } else if (text.toLowerCase().includes('jenkins')) {
+  } else if (textLower.includes('jenkins')) {
     result.testType = 'jenkins';
-  } else if (text.toLowerCase().includes('playwright')) {
+  } else if (textLower.includes('playwright')) {
     result.testType = 'playwright';
   }
   
   // Look for status indicators - prioritize failure detection
-  const textLower = text.toLowerCase();
   if (textLower.includes('failed run') || textLower.includes('failed build') || 
       (textLower.includes('failed') && textLower.includes('test')) || 
-      text.includes('❌')) {
+      processed.includes('❌')) {
     result.status = 'failed';
   } else if (textLower.includes('passed run') || textLower.includes('passed build') || 
+             textLower.includes('success') ||
              (textLower.includes('passed') && !textLower.includes('failed')) || 
-             text.includes('✅')) {
+             processed.includes('✅') || processed.includes('🟢')) {
     result.status = 'passed';
   }
   
   // Extract failed test names (pattern: filename_spec.ts or similar)
-  const testFilePattern = /([a-zA-Z0-9_-]+(?:_spec|\.spec|\.test|_test)\.[jt]sx?)/g;
-  const testMatches = text.match(testFilePattern);
+  const testFilePattern = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)\.[jt]sx?)/gi;
+  const testMatches = processed.match(testFilePattern);
   if (testMatches) {
-    result.failedTests = [...new Set(testMatches)]; // Remove duplicates
+    // Normalize to basename and dedup, also strip leading slashes or artifacts
+    const normalized = testMatches.map(m => {
+      const cleaned = m.replace(/^\/*/, '');
+      const base = cleaned.replace(/^.*[\\/]/, '');
+      return base.replace(/^2f+/i, '');
+    });
+    result.failedTests = Array.from(new Set(normalized));
   }
   
   return result;
