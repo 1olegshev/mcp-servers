@@ -24,14 +24,17 @@ export class TextAnalyzer {
    * Analyze issue severity from text content
    */
   static analyzeIssueSeverity(text: string): { isBlocking: boolean; isCritical: boolean } {
-    const lowerText = text.toLowerCase();
+    const lower = (text || '').toLowerCase();
     
     const blockingKeywords = ['blocker', 'blocking', 'release blocker', 'blocks release', 'block release'];
-    const criticalKeywords = ['critical', 'urgent', 'high priority', 'must fix', 'critical issue'];
-    
-    const isBlocking = blockingKeywords.some(keyword => lowerText.includes(keyword));
-    const isCritical = criticalKeywords.some(keyword => lowerText.includes(keyword));
-    
+    const isBlocking = blockingKeywords.some(keyword => lower.includes(keyword));
+
+    // Negation-aware critical detection (avoid false positives)
+    const criticalPositive = /(\bthis\s+is\s+)?critical(?!\s*path)\b|\burgent\b|\bhigh\s+priority\b/.test(lower);
+    const criticalNegative = /\bnot\s+(a\s+)?(super\s+)?high\s+priority\b|\bnot\s+critical\b|\bnot\s+urgent\b|\blow\s+priority\b|\bnot\s+.*tackle\s+immediately\b|\bno\s+need\s+to\s+tackle\s+immediately\b|\bnot\s+immediate(ly)?\b/.test(lower);
+    const windowNegation = /\b(?:not|isn['’]?t|no|doesn['’]?t(?:\s+have)?)\b(?:\W+\w+){0,4}\W+(?:critical|urgent|high\s+priority)\b/i.test(lower);
+    const isCritical = criticalPositive && !criticalNegative && !windowNegation;
+
     return { isBlocking, isCritical };
   }
 
