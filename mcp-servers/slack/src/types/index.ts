@@ -30,6 +30,7 @@ export interface SlackMessage {
   };
   blocks?: any[];
   attachments?: any[];
+  reactions?: { name: string; count: number; users: string[] }[];
 }
 
 export interface FormattedMessage {
@@ -40,11 +41,12 @@ export interface FormattedMessage {
 }
 
 export interface Issue {
-  type: 'blocking' | 'critical';
+  type: 'blocking' | 'critical' | 'blocking_resolved';
   text: string;
   tickets: JiraTicketInfo[];
   timestamp: string;
   hasThread: boolean;
+  resolutionText?: string; // Add field for resolution context
 }
 
 export interface JiraTicketInfo {

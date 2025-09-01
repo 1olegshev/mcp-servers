@@ -37,14 +37,23 @@ export class TestAnalyzerService {
 
   constructor(private slackClient: SlackClient) {}
 
-  async analyzeTestResults(channel: string, date?: string): Promise<TestResult[]> {
-    // Use smart date range for auto-test lookback
-    const { oldest, latest } = DateUtils.getAutoTestDateRange(date, this.testBotConfig.maxLookbackDays);
-    const messages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest);
+  async analyzeTestResults(
+    channel: string, 
+    date?: string,
+    messages?: SlackMessage[]
+  ): Promise<TestResult[]> {
+    // Use provided messages or fetch them with smart date range
+    let messagesToAnalyze: SlackMessage[];
+    if (messages) {
+      messagesToAnalyze = messages;
+    } else {
+      const { oldest, latest } = DateUtils.getAutoTestDateRange(date, this.testBotConfig.maxLookbackDays);
+      messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest);
+    }
     
     const testResults: TestResult[] = [];
 
-    for (const message of messages) {
+    for (const message of messagesToAnalyze) {
       // Use improved bot detection
       if (!this.isRelevantTestBot(message)) continue;
       

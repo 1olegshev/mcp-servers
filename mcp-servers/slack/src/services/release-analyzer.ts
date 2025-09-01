@@ -6,9 +6,11 @@
 import { IssueDetectorService } from './issue-detector.js';
 import { TestAnalyzerService } from './test-analyzer.js';
 import { DateUtils } from '../utils/date-utils.js';
+import { SlackClient } from '../clients/slack-client.js';
 
 export class ReleaseAnalyzerService {
   constructor(
+    private slackClient: SlackClient,
     private issueDetector: IssueDetectorService,
     private testAnalyzer: TestAnalyzerService
   ) {}
@@ -16,21 +18,41 @@ export class ReleaseAnalyzerService {
   async generateReleaseOverview(channel: string, date?: string): Promise<string> {
     const targetDate = date || DateUtils.getTodayDateString();
     
-    // Get all analysis results
-    const [blockingIssues, criticalIssues, testResults] = await Promise.all([
-      this.issueDetector.findIssues(channel, date, 'blocking'),
-      this.issueDetector.findIssues(channel, date, 'critical'),
-      this.testAnalyzer.analyzeTestResults(channel, date)
+    // Fetch all potential issues and test results in parallel
+    const { oldest, latest } = DateUtils.getDateRange(date);
+    const messages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 100);
+    
+    const [allIssues, testResults] = await Promise.all([
+      this.issueDetector.findIssues(channel, date, 'both', messages),
+      this.testAnalyzer.analyzeTestResults(channel, date, messages)
     ]);
+    
+    // Separate issues by their new, nuanced types
+    const blockingIssues = allIssues.filter(i => i.type === 'blocking');
+    const criticalIssues = allIssues.filter(i => i.type === 'critical');
+    const resolvedBlockers = allIssues.filter(i => i.type === 'blocking_resolved');
+    
+    return this.formatOverview(targetDate, blockingIssues, criticalIssues, resolvedBlockers, testResults, channel);
+  }
 
-    // Determine status
+  private formatOverview(
+    targetDate: string, 
+    blockingIssues: any[], 
+    criticalIssues: any[], 
+    resolvedBlockers: any[],
+    testResults: any[], 
+    channel: string
+  ): string {
+    // Determine status based on nuanced issue types
     const hasBlockingIssues = blockingIssues.length > 0;
     const hasCriticalIssues = criticalIssues.length > 0;
-    const autoTestsAllPassed = testResults.every(t => t.status === 'passed');
+    const hasResolvedBlockers = resolvedBlockers.length > 0;
+    
+    const autoTestsAllPassed = testResults.every((t: any) => t.status === 'passed');
     const autoTestsReviewed = testResults
-      .filter(t => t.status === 'failed')
-      .every(t => t.hasReview && t.reviewSummary?.includes('not blocking'));
-    const autoTestsPending = testResults.some(t => 
+      .filter((t: any) => t.status === 'failed')
+      .every((t: any) => t.hasReview && t.reviewSummary?.includes('not blocking'));
+    const autoTestsPending = testResults.some((t: any) => 
       t.status === 'failed' && (!t.hasReview || !t.reviewSummary?.includes('not blocking'))
     );
 
@@ -41,7 +63,7 @@ export class ReleaseAnalyzerService {
     if (hasBlockingIssues) {
       overallStatus = 'BLOCKED';
       statusEmoji = '🔴';
-    } else if (autoTestsPending || hasCriticalIssues) {
+    } else if (autoTestsPending || hasCriticalIssues || hasResolvedBlockers) {
       overallStatus = 'UNCERTAIN';
       statusEmoji = '🟡';
     }
@@ -64,10 +86,21 @@ export class ReleaseAnalyzerService {
     
     if (hasBlockingIssues) {
       output += `🚨 BLOCKING ISSUES FOUND:\n`;
-      blockingIssues.slice(0, 5).forEach((issue, i) => {
+      blockingIssues.slice(0, 5).forEach((issue: any, i: any) => {
         output += `${i + 1}. ${issue.text}\n`;
         if (issue.tickets.length > 0) {
-          output += `   Tickets: ${issue.tickets.map(t => t.key).join(', ')}\n`;
+          output += `   Tickets: ${issue.tickets.map((t: any) => t.key).join(', ')}\n`;
+        }
+      });
+      output += '\n';
+    }
+    
+    if (hasResolvedBlockers) {
+      output += `🟠 MITIGATED BLOCKERS (Review Recommended):\n`;
+      resolvedBlockers.slice(0, 5).forEach((issue: any, i: any) => {
+        output += `${i + 1}. ${issue.text}\n`;
+        if (issue.resolutionText) {
+          output += `   Resolution: "${issue.resolutionText.trim()}"\n`;
         }
       });
       output += '\n';
@@ -75,10 +108,10 @@ export class ReleaseAnalyzerService {
     
     if (hasCriticalIssues) {
       output += `⚠️ CRITICAL ISSUES FOUND:\n`;
-      criticalIssues.slice(0, 5).forEach((issue, i) => {
+      criticalIssues.slice(0, 5).forEach((issue: any, i: any) => {
         output += `${i + 1}. ${issue.text}\n`;
         if (issue.tickets.length > 0) {
-          output += `   Tickets: ${issue.tickets.map(t => t.key).join(', ')}\n`;
+          output += `   Tickets: ${issue.tickets.map((t: any) => t.key).join(', ')}\n`;
         }
       });
       output += '\n';
@@ -87,11 +120,11 @@ export class ReleaseAnalyzerService {
     // Recommendation
     output += `📋 RECOMMENDATION:\n`;
     if (overallStatus === 'READY') {
-      output += `✅ Release can proceed - no blockers detected\n`;
+      output += `✅ Release can proceed - no active blockers detected\n`;
     } else if (overallStatus === 'BLOCKED') {
-      output += `❌ Release should be postponed - blocking issues need resolution\n`;
+      output += `❌ Release should be postponed - active blocking issues need resolution\n`;
     } else {
-      output += `⚠️ Release decision pending - review critical issues and auto test failures\n`;
+      output += `⚠️ Release decision pending - review critical issues and mitigated blockers\n`;
     }
     
     output += `\n📅 Analysis Date: ${targetDate}\n`;

@@ -132,15 +132,18 @@ export class SlackClient {
   async searchMessages(query: string, channel?: string): Promise<any[]> {
     try {
       let q = query;
-      if (channel) {
+      
+      // If channel is provided and not already in query, add it
+      if (channel && !q.includes('in:')) {
         const chName = channel.startsWith('#') ? channel.slice(1) : channel;
         q = `${q} in:${chName}`;
       }
 
       const result = (await this.slack.search.messages({ 
         query: q, 
-        sort: 'score', 
-        sort_dir: 'desc' 
+        sort: 'timestamp', // Sort by time for issue detection
+        sort_dir: 'desc',
+        count: 20 // Limit results for performance
       } as any)) as any;
       
       return (result.messages?.matches || []) as any[];

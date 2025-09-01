@@ -19,14 +19,23 @@ export class IssueDetectorService {
   async findIssues(
     channel: string,
     date?: string,
-    severity: 'blocking' | 'critical' | 'both' = 'both'
+    severity: 'blocking' | 'critical' | 'both' = 'both',
+    messages?: SlackMessage[]
   ): Promise<Issue[]> {
-    const { oldest, latest } = DateUtils.getDateRange(date);
-    const messages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest);
+    // Use provided messages or fetch them with optimized parameters
+    let messagesToAnalyze: SlackMessage[];
+    if (messages) {
+      messagesToAnalyze = messages;
+    } else {
+      const { oldest, latest } = DateUtils.getDateRange(date);
+      // OPTIMIZATION: Reduce limit from 200 to 50 for today-only queries
+      const limit = date ? 200 : 50; // Less messages for "today" queries
+      messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, limit);
+    }
     
     const issues: Issue[] = [];
 
-    for (const message of messages) {
+    for (const message of messagesToAnalyze) {
       await this.analyzeMessage(message, channel, severity, issues);
     }
 
@@ -41,116 +50,89 @@ export class IssueDetectorService {
   ): Promise<void> {
     const text = message.text || '';
     
-    // Check for reactions (especially :no-go:)
-    const hasNoGoReaction = await this.checkForNoGoReaction(message, channel);
+    // Enhanced issue analysis that returns a detailed status
+    const issueAnalysis = await this.analyzeIssueWithContext(message, channel, text);
     
-    // Enhanced issue analysis
-    const issueAnalysis = await this.analyzeIssueWithContext(message, channel, text, hasNoGoReaction);
-    
-    if (this.shouldIncludeIssue(issueAnalysis.isBlocking, issueAnalysis.isCritical, severity)) {
+    // Determine if the issue should be included based on its type and the requested severity
+    if (issueAnalysis.type !== 'none' && this.shouldIncludeIssue(issueAnalysis.type, severity)) {
       const tickets = TextAnalyzer.extractTickets(text, this.jiraBaseUrl);
+      
       issues.push({
-        type: issueAnalysis.isBlocking ? 'blocking' : 'critical',
+        type: issueAnalysis.type,
         text: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
         tickets,
         timestamp: message.ts!,
         hasThread: !!message.thread_ts || (message.reply_count || 0) > 0,
+        resolutionText: issueAnalysis.resolutionText,
       });
     }
-
-    // Check thread replies for issues
-    if (message.thread_ts || (message.reply_count || 0) > 0) {
-      await this.analyzeThreadReplies(message, channel, severity, issues);
-    }
   }
 
-  private async analyzeThreadReplies(
-    message: SlackMessage,
-    channel: string,
-    severity: string,
-    issues: Issue[]
-  ): Promise<void> {
-    try {
-      const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
-      
-      for (const reply of replies) {
-        const replyText = reply.text || '';
-        
-        // Use enhanced analysis for thread replies too
-        const issueAnalysis = await this.analyzeIssueWithContext(reply, channel, replyText, false);
-        
-        if (this.shouldIncludeIssue(issueAnalysis.isBlocking, issueAnalysis.isCritical, severity)) {
-          const tickets = TextAnalyzer.extractTickets(replyText, this.jiraBaseUrl);
-          issues.push({
-            type: issueAnalysis.isBlocking ? 'blocking' : 'critical',
-            text: `[Thread Reply] ${replyText.substring(0, 180)}...`,
-            tickets,
-            timestamp: reply.ts!,
-            hasThread: false,
-          });
-        }
-      }
-    } catch (error) {
-      // Continue if thread reading fails
-      console.error('Failed to read thread replies:', error);
-    }
-  }
+  // This method is now removed as its logic is integrated into analyzeMessage
+  // private async analyzeThreadReplies(...) {}
 
-  private shouldIncludeIssue(isBlocking: boolean, isCritical: boolean, severity: string): boolean {
-    return (severity === 'blocking' && isBlocking) || 
-           (severity === 'critical' && isCritical) ||
-           (severity === 'both' && (isBlocking || isCritical));
+  private shouldIncludeIssue(
+    issueType: 'blocking' | 'critical' | 'blocking_resolved' | 'none', 
+    severity: string
+  ): boolean {
+    if (severity === 'both') {
+      return issueType !== 'none';
+    }
+    if (severity === 'blocking') {
+      return issueType === 'blocking' || issueType === 'blocking_resolved';
+    }
+    if (severity === 'critical') {
+      return issueType === 'critical';
+    }
+    return false;
   }
 
   /**
    * Check for :no-go: emoji reaction on a message
    */
   private async checkForNoGoReaction(message: SlackMessage, channel: string): Promise<boolean> {
-    try {
-      // Note: This would require reactions API access
-      // For now, we'll rely on thread analysis and text patterns
-      return false;
-    } catch (error) {
-      return false;
-    }
+    // This is a placeholder - real implementation would need reactions:read scope
+    return message.reactions?.some(r => r.name === 'no-go') || false;
   }
 
   /**
    * Enhanced issue analysis with context from thread and reactions
+   * Returns a detailed issue type instead of a simple boolean
    */
   private async analyzeIssueWithContext(
     message: SlackMessage, 
     channel: string, 
-    text: string, 
-    hasNoGoReaction: boolean
-  ): Promise<{ isBlocking: boolean; isCritical: boolean }> {
+    text: string
+  ): Promise<{ type: 'blocking' | 'critical' | 'blocking_resolved' | 'none', resolutionText?: string }> {
     
-    // Start with basic text analysis
+    const hasNoGoReaction = await this.checkForNoGoReaction(message, channel);
     const { isBlocking: textBlocking, isCritical: textCritical } = TextAnalyzer.analyzeIssueSeverity(text);
     
-    // Enhanced detection patterns
-    const enhancedBlocking = textBlocking || 
-      hasNoGoReaction ||
-      this.hasBlockingIndicators(text);
-    
-    const enhancedCritical = textCritical || 
-      this.hasCriticalIndicators(text);
-    
-    // Check thread for consensus if available
+    const isPotentiallyBlocking = textBlocking || hasNoGoReaction || this.hasBlockingIndicators(text);
+    const isPotentiallyCritical = textCritical || this.hasCriticalIndicators(text);
+
+    if (!isPotentiallyBlocking && !isPotentiallyCritical) {
+      return { type: 'none' };
+    }
+
+    // If there's a thread, check for resolution context
     if (message.thread_ts || (message.reply_count || 0) > 0) {
       const threadAnalysis = await this.analyzeThreadForSeverity(message, channel);
       
-      // Thread consensus overrides initial indicators
-      if (threadAnalysis.hasBlockingConsensus) {
-        return { isBlocking: true, isCritical: false };
-      } else if (threadAnalysis.hasCriticalConsensus) {
-        return { isBlocking: false, isCritical: true };
-      } else if (threadAnalysis.hasResolutionConsensus) {
-        return { isBlocking: false, isCritical: false };
+      if (isPotentiallyBlocking && threadAnalysis.hasResolutionConsensus) {
+        return { type: 'blocking_resolved', resolutionText: threadAnalysis.resolutionText };
       }
     }
     
-    return { isBlocking: enhancedBlocking, isCritical: enhancedCritical };
+    if (isPotentiallyBlocking) {
+      return { type: 'blocking' };
+    }
+    
+    if (isPotentiallyCritical) {
+      return { type: 'critical' };
+    }
+
+    return { type: 'none' };
   }
 
   /**
@@ -182,10 +164,18 @@ export class IssueDetectorService {
   private async analyzeThreadForSeverity(
     message: SlackMessage, 
     channel: string
-  ): Promise<{ hasBlockingConsensus: boolean; hasCriticalConsensus: boolean; hasResolutionConsensus: boolean }> {
+  ): Promise<{ hasBlockingConsensus: boolean; hasCriticalConsensus: boolean; hasResolutionConsensus: boolean; resolutionText?: string }> {
     try {
       const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
-      const allThreadText = replies.map(r => r.text || '').join(' ').toLowerCase();
+      let resolutionText = '';
+      
+      const allThreadText = replies.map(r => {
+        const text = r.text || '';
+        if (/not.*a?.*block(er|ing)|resolved|fixed|reverted|done/i.test(text)) {
+          resolutionText = text;
+        }
+        return text;
+      }).join(' ').toLowerCase();
       
       const hasBlockingConsensus = 
         /this.*is.*a?.*block(er|ing)/i.test(allThreadText) ||
@@ -198,13 +188,9 @@ export class IssueDetectorService {
         /this.*is.*critical/i.test(allThreadText) ||
         /critical.*issue/i.test(allThreadText);
       
-      const hasResolutionConsensus = 
-        /not.*a?.*block(er|ing)/i.test(allThreadText) ||
-        /resolved/i.test(allThreadText) ||
-        /fixed/i.test(allThreadText) ||
-        /no.*longer.*blocking/i.test(allThreadText);
+      const hasResolutionConsensus = !!resolutionText;
       
-      return { hasBlockingConsensus, hasCriticalConsensus, hasResolutionConsensus };
+      return { hasBlockingConsensus, hasCriticalConsensus, hasResolutionConsensus, resolutionText };
     } catch (error) {
       return { hasBlockingConsensus: false, hasCriticalConsensus: false, hasResolutionConsensus: false };
     }

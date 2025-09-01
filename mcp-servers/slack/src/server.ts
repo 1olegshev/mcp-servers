@@ -56,11 +56,11 @@ export class SlackMCPServer {
     const slackClient = new SlackClient();
     const issueDetector = new IssueDetectorService(slackClient);
     const testAnalyzer = new TestAnalyzerService(slackClient);
-    const releaseAnalyzer = new ReleaseAnalyzerService(issueDetector, testAnalyzer);
-    
-    // Initialize handlers
-    this.messagingHandler = new MessagingHandler(slackClient);
+    const releaseAnalyzer = new ReleaseAnalyzerService(slackClient, issueDetector, testAnalyzer);
+
+    // Initialize handlers with dependencies
     this.analysisHandler = new AnalysisHandler(issueDetector, testAnalyzer, releaseAnalyzer);
+    this.messagingHandler = new MessagingHandler(slackClient);
   }
 
   private setupHandlers(): void {
