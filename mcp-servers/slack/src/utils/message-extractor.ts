@@ -111,6 +111,10 @@ export function extractTextFromAttachments(attachments: any[]): string {
     if (att.text) {
       parts.push(`Text: ${att.text}`);
     }
+    // Some Slack SDKs place the main content in fallback
+    if (att.fallback) {
+      parts.push(`Fallback: ${att.fallback}`);
+    }
     
     if (att.footer) {
       parts.push(`Footer: ${att.footer}`);
@@ -119,8 +123,11 @@ export function extractTextFromAttachments(attachments: any[]): string {
     // Handle fields
     if (att.fields) {
       for (const field of att.fields) {
+        // include fields even without title since Jenkins often leaves title empty
         if (field.title && field.value) {
           parts.push(`${field.title}: ${field.value}`);
+        } else if (field.value) {
+          parts.push(`${field.value}`);
         }
       }
     }

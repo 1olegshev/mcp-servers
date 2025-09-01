@@ -8,7 +8,7 @@ import { TextAnalyzer } from '../utils/analyzers.js';
 import { DateUtils } from '../utils/date-utils.js';
 import { TestResult, SlackMessage } from '../types/index.js';
 import { extractAllMessageText, isBotMessage, parseTestResultsFromText } from '../utils/message-extractor.js';
-import * as fs from 'fs';
+// Note: Removed file-based debug logging for cleaner runtime
 
 export class TestAnalyzerService {
   // Configuration for which bots/patterns to look for
@@ -52,37 +52,20 @@ export class TestAnalyzerService {
       messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 1000);
     }
     
-    const testResults: TestResult[] = [];
-
-    // Debug logging to file
-    const debugLog = `/tmp/slack-debug-${Date.now()}.log`;
-    fs.writeFileSync(debugLog, `[DEBUG] Analyzing ${messagesToAnalyze.length} messages for test results\n`);
-    fs.appendFileSync(debugLog, `[DEBUG] Date range requested: ${date || 'auto'}\n`);
+  const testResults: TestResult[] = [];
 
     // Pre-filter to relevant test bot messages
     const relevant = (messagesToAnalyze || []).filter(m => this.isRelevantTestBot(m));
-    if (relevant.length === 0) {
-      fs.appendFileSync(debugLog, `[DEBUG] No relevant test bot messages found in fetched range.\n`);
-    }
     // Do NOT filter to a single calendar day here; use the full fetched range (Fri-Sun on Monday or previous day otherwise)
     // Let latest-by-type logic pick the closest per-suite post in the range.
-    messagesToAnalyze = relevant;
-    fs.appendFileSync(debugLog, `[DEBUG] Using full fetched range; relevant messages count: ${messagesToAnalyze.length}\n`);
+  messagesToAnalyze = relevant;
 
     for (const message of messagesToAnalyze) {
-      // Log all bot messages we find
-      if (isBotMessage(message)) {
-        fs.appendFileSync(debugLog, `[DEBUG] Found bot message: user=${message.user}, bot_id=${(message as any).bot_id}, text="${(message.text || '').substring(0, 100)}..."\n`);
-      }
-      
       // Use improved bot detection
       if (!this.isRelevantTestBot(message)) {
         continue;
       }
       
-      fs.appendFileSync(debugLog, `[DEBUG] Processing test bot: user=${message.user}, bot_id=${(message as any).bot_id}, timestamp=${message.ts}\n`);
-
-      console.log(`[DEBUG] Processing test bot: user=${message.user}, bot_id=${(message as any).bot_id}`);
       
       // Extract all text from message (including blocks and attachments)
       const extractedText = extractAllMessageText(message);
@@ -102,21 +85,33 @@ export class TestAnalyzerService {
         const { status: fallbackStatus } = TextAnalyzer.analyzeTestResult(message);
         status = fallbackStatus;
       }
-      // Playwright-specific fallback: attachments often carry the status text
+      // Playwright-specific fallback: rely on message/attachments content, not reactions
       if ((status === 'unknown' || status === 'pending') && testType === 'Playwright') {
-        const lt = (extractedText.text || '').toLowerCase();
-        if (/(success|passed|🟢|green)/i.test(extractedText.text || '')) {
+        const raw = extractedText.text || '';
+        const normalized = raw.replace(/\*/g, '').toLowerCase();
+        // Specific phrase used in our Jenkins posts
+        const phraseMatch = /frontend\s+qa\s+playwright\s+tests\s+passed/.test(normalized);
+        // Also allow Jenkins/Job context with Success
+        const jenkinsSuccess = /kahoot-frontend-player-qa-playwright|playwright/.test(normalized) && /success|passed/.test(normalized);
+        if (phraseMatch || jenkinsSuccess) {
           status = 'passed';
-        } else if (/(failed|❌)/i.test(extractedText.text || '')) {
+        } else if (/(failed)/i.test(normalized)) {
           status = 'failed';
         } else {
           // Fetch full message details as a last resort and re-parse
           try {
             const full = await this.slackClient.getMessageDetails(channel, message.ts!);
             const fullText = extractAllMessageText(full).text || '';
-            const reparsed = parseTestResultsFromText(fullText);
-            if (reparsed.status === 'passed' || reparsed.status === 'failed') {
-              status = reparsed.status as 'passed' | 'failed';
+            const fullNorm = fullText.replace(/\*/g, '').toLowerCase();
+            if (/frontend\s+qa\s+playwright\s+tests\s+passed/.test(fullNorm) || (/playwright/.test(fullNorm) && /success|passed/.test(fullNorm))) {
+              status = 'passed';
+            } else if (/failed/.test(fullNorm)) {
+              status = 'failed';
+            } else {
+              const reparsed = parseTestResultsFromText(fullText);
+              if (reparsed.status === 'passed' || reparsed.status === 'failed') {
+                status = reparsed.status as 'passed' | 'failed';
+              }
             }
           } catch {}
         }
@@ -155,12 +150,7 @@ export class TestAnalyzerService {
         reviewSummary: threadAnalysis.summary,
         permalink,
       });
-      
-      fs.appendFileSync(debugLog, `[DEBUG] Added test result: ${JSON.stringify(testResults[testResults.length - 1])}\n`);
     }
-
-    fs.appendFileSync(debugLog, `[DEBUG] Final results count: ${testResults.length}\n`);
-    console.log(`[DEBUG] File logged to: ${debugLog}`);
 
     return testResults;
   }
@@ -246,12 +236,18 @@ export class TestAnalyzerService {
     
     // Analyze thread for outcomes
     const outcomes = {
-      rerunSuccessful: /manual.*re[- ]?run.*pass|re[- ]?run.*(successful|success)|all.*tests.*pass|fixed|resolved|green|🟢|✅/i.test(allText),
-      underInvestigation: /investigat|will.*look|looking.*into|checking|check it out|on it/i.test(allText),
-      notBlocking: /not.*blocking|reviewed.*ok|approved|green.*light|not.*release.*blocker|no.*go.*removed/i.test(allText),
-      stillFailing: /still.*fail|rerun.*fail|not.*fixed|issue.*persists|keeps.*failing/i.test(allText),
-      revert: /revert(ed)?/i.test(allText),
-      prOpened: /(https?:\/\/\S*github\.com\/\S*\/pull\/\d+)|\bPR\b|pull request|opening PR|opened PR/i.test(allText)
+      // rerun success signals
+      rerunSuccessful: /(re[- ]?run|re\s*run|re\s*-\s*run).*pass|passed on re\s*[- ]?run|fixed|resolved|all\s+tests\s+pass/i.test(allText),
+      // investigation in progress
+      underInvestigation: /investigat|will\s+look|looking\s+into|checking|check\s+it\s+out|on\s+it/i.test(allText),
+      // explicit non-blocking statements
+      notBlocking: /not\s+blocking|reviewed\s*[—-]?\s*not\s+blocking|green\s+light|not\s+(a\s+)?release\s+blocker/i.test(allText),
+      // still failing after attempts
+      stillFailing: /still\s+fail|re[- ]?run\s+fail|not\s+fixed|issue\s+persists|keeps\s+failing/i.test(allText),
+      // revert intent or action
+      revert: /\bwill\s+revert\b|\brevert(ed)?\b/i.test(allText),
+      // PR signal (explicit words or GitHub PR URL)
+      prOpened: /(https?:\/\/\S*github\.com\/\S*\/pull\/\d+)|\b(pr|pull\s*request)\b|opening\s*pr|opened\s*pr/i.test(allText)
     } as const;
 
     // Build summary
@@ -263,18 +259,25 @@ export class TestAnalyzerService {
     
     if (outcomes.rerunSuccessful) {
       summary += 'Manual rerun successful ✅';
-      if (outcomes.prOpened) summary += ' • PR opened';
-    } else if (outcomes.notBlocking) {
-      summary += 'Reviewed - not blocking ✅';
-      if (outcomes.prOpened) summary += ' • PR opened';
-    } else if (outcomes.stillFailing) {
-      summary += 'Still failing after rerun ❌';
-      if (outcomes.revert) summary += ' • revert planned/applied';
-    } else if (outcomes.underInvestigation) {
-      summary += 'Under investigation 🔍';
-      if (outcomes.prOpened) summary += ' • PR opened';
-    } else {
-      summary += 'Thread activity - status unclear';
+    }
+    if (!outcomes.rerunSuccessful && outcomes.notBlocking) {
+      summary += (summary ? ' • ' : '') + 'Reviewed - not blocking ✅';
+    }
+    if (!outcomes.rerunSuccessful && outcomes.stillFailing) {
+      summary += (summary ? ' • ' : '') + 'Still failing after rerun ❌';
+    }
+    if (outcomes.revert) {
+      summary += (summary ? ' • ' : '') + 'revert planned/applied';
+    }
+    if (outcomes.prOpened) {
+      summary += (summary ? ' • ' : '') + 'PR opened';
+    }
+    if (!summary) {
+      if (outcomes.underInvestigation) {
+        summary = 'Under investigation 🔍';
+      } else {
+        summary = 'Thread activity - status unclear';
+      }
     }
 
     return {
