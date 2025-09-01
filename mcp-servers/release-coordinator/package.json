@@ -1,0 +1,20 @@
+{
+  "name": "release-coordinator-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for orchestrating release status information.",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3",
+    "axios": "^1.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^20.0.0"
+  }
+}

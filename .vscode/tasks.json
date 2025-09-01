@@ -1,0 +1,45 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build: release-coordinator",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "start: release-coordinator",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"mcp-servers/release-coordinator/dist/server.js"
+			],
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "build:release-coordinator-only",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"mcp-servers/release-coordinator",
+				"run",
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}

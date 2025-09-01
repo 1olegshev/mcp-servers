@@ -28,6 +28,12 @@
         "CONFLUENCE_EMAIL": "${CONFLUENCE_EMAIL}",
         "CONFLUENCE_API_TOKEN": "${CONFLUENCE_API_TOKEN}"
       }
+    },
+    "release-coordinator": {
+      "command": "npm",
+      "args": ["run", "start"],
+      "cwd": "/Users/olegshevchenko/Sourses/MCP/mcp-servers/release-coordinator",
+      "env": {}
     }
   }
 }
