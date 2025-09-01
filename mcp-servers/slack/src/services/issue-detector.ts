@@ -150,20 +150,30 @@ export class IssueDetectorService {
     let indicatedBlocking = textBlocking || hasNoGoReaction || this.hasBlockingIndicators(text);
     let indicatedCritical = textCritical || this.hasCriticalIndicators(text);
 
-    // If parent text has no severity signals, look into the thread for severity words (e.g., "blocker" in replies)
+    // Always analyze the thread if present to allow replies to override/clarify severity over time
     let threadSeverity: Awaited<ReturnType<IssueDetectorService['analyzeThreadForSeverity']>> = {
       hasBlockingConsensus: false,
       hasCriticalConsensus: false,
       hasResolutionConsensus: false,
-    };
-    if (!indicatedBlocking && !indicatedCritical && (message.thread_ts || (message.reply_count || 0) > 0)) {
+      criticalPositive: false,
+      criticalNegative: false,
+    } as any;
+    if (message.thread_ts || (message.reply_count || 0) > 0) {
       try {
-        const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
-        const threadText = replies.map(r => r.text || '').join(' ').toLowerCase();
-        // Reuse existing helpers on combined thread text
-        indicatedBlocking = this.hasBlockingIndicators(threadText) || /\bblock(er|ing)\b/.test(threadText);
-        // Use negation-aware critical detection only; avoid naive keyword match
-        indicatedCritical = this.hasCriticalIndicators(threadText);
+        // Compute consensus and polarity from replies
+        threadSeverity = await this.analyzeThreadForSeverity(message, channel);
+        // Elevate blocking if thread establishes blocking consensus
+        if (!indicatedBlocking && threadSeverity.hasBlockingConsensus) {
+          indicatedBlocking = true;
+        }
+        // Replies override parent for critical:
+        // - Any clear negation in thread downgrades to non-critical
+        // - Elevate only if thread has a clear positive consensus (positive without negation)
+        if (threadSeverity.criticalNegative) {
+          indicatedCritical = false;
+        } else if (!indicatedCritical && threadSeverity.hasCriticalConsensus) {
+          indicatedCritical = true;
+        }
       } catch {}
     }
 
@@ -172,12 +182,9 @@ export class IssueDetectorService {
       return { type: 'none' };
     }
 
-    // If there's a thread, analyze it for resolution signals regardless of whether severity came from parent or thread
-    if (message.thread_ts || (message.reply_count || 0) > 0) {
-      threadSeverity = await this.analyzeThreadForSeverity(message, channel);
-      if (indicatedBlocking && threadSeverity.hasResolutionConsensus) {
-        return { type: 'blocking_resolved', resolutionText: threadSeverity.resolutionText };
-      }
+    // If thread indicates resolution for a blocking issue, reflect as blocking_resolved
+    if ((message.thread_ts || (message.reply_count || 0) > 0) && threadSeverity.hasResolutionConsensus && indicatedBlocking) {
+      return { type: 'blocking_resolved', resolutionText: threadSeverity.resolutionText };
     }
 
     if (indicatedBlocking) {
@@ -247,7 +254,7 @@ export class IssueDetectorService {
   private async analyzeThreadForSeverity(
     message: SlackMessage, 
     channel: string
-  ): Promise<{ hasBlockingConsensus: boolean; hasCriticalConsensus: boolean; hasResolutionConsensus: boolean; resolutionText?: string }> {
+  ): Promise<{ hasBlockingConsensus: boolean; hasCriticalConsensus: boolean; hasResolutionConsensus: boolean; resolutionText?: string; criticalPositive: boolean; criticalNegative: boolean }> {
     try {
       const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
       let resolutionText = '';
@@ -268,16 +275,16 @@ export class IssueDetectorService {
         // consider reactions like :no-go: on replies as blocking signals
         replies.some(r => (r.reactions || []).some(rx => /no[-_ ]?go/i.test(rx.name)));
       
-      // Negation-aware critical consensus
+      // Negation-aware critical consensus and polarity flags
       const criticalPositive = /\b(this\s+is\s+)?critical(?!\s*path)\b|\burgent\b|\bhigh\s+priority\b/i.test(allThreadText);
       const criticalNegative = /\bnot\s+(a\s+)?(super\s+)?high\s+priority\b|\bnot\s+critical\b|\bnot\s+urgent\b|\blow\s+priority\b|\bnot\s+.*tackle\s+immediately\b|\bno\s+need\s+to\s+tackle\s+immediately\b|\bnot\s+immediate(ly)?\b/i.test(allThreadText);
       const hasCriticalConsensus = criticalPositive && !criticalNegative;
       
       const hasResolutionConsensus = !!resolutionText;
       
-      return { hasBlockingConsensus, hasCriticalConsensus, hasResolutionConsensus, resolutionText };
+      return { hasBlockingConsensus, hasCriticalConsensus, hasResolutionConsensus, resolutionText, criticalPositive, criticalNegative };
     } catch (error) {
-      return { hasBlockingConsensus: false, hasCriticalConsensus: false, hasResolutionConsensus: false };
+      return { hasBlockingConsensus: false, hasCriticalConsensus: false, hasResolutionConsensus: false, criticalPositive: false, criticalNegative: false };
     }
   }
 
