@@ -158,17 +158,39 @@ The Release Coordinator orchestrates data from Slack and Jira servers to provide
 - Optional automatic posting to Slack #qa-release-status channel
 
 **Example Usage:**
-- *"Generate today's release status report"* → Fetches data from all systems and formats comprehensive overview
-- *"Get release status and post to Slack"* → Same as above but automatically posts to #qa-release-status
-- *"Show release status for September 2nd"* → Historical release status for specific date
+- *"Generate today's release status report"* → Simply call with no parameters: `get_comprehensive_release_overview()`
+- *"Get release status and post to Slack"* → `get_comprehensive_release_overview({"postToSlack": true})`
+- *"Show release status for September 2nd"* → `get_comprehensive_release_overview({"date": "2025-09-02"})`
+
+**Smart Defaults:**
+All parameters are optional with sensible defaults:
+- `channel`: "functional-testing" (most common testing channel)
+- `boardId`: 23 (main KAHOOT testing board)
+- `domain`: "all" (include all domains: frontend, backend, wordpress, other)
+- `date`: today's date (ISO format)
+- `postToSlack`: false (just return the report, don't post)
+- `separateNoTest`: false (standard NoTest handling)
 
 **Parameters:**
-- `channel`: Slack channel to analyze (default: functional-testing)
-- `boardId`: Jira board ID (default: 23)
-- `domain`: Filter by domain (all/frontend/backend/wordpress/other)
-- `date`: Date for analysis (ISO format or "today")
-- `postToSlack`: Whether to post results to #qa-release-status
-- `separateNoTest`: Show separate NoTest counts in Jira summary
+All parameters are optional with smart defaults for immediate use:
+- `channel`: Slack channel to analyze (default: "functional-testing")
+- `boardId`: Jira board ID (default: 23 - main KAHOOT board)
+- `domain`: Filter by domain - all/frontend/backend/wordpress/other (default: "all")
+- `date`: Date for analysis - ISO format or "today" (default: current date)
+- `postToSlack`: Whether to post results to #qa-release-status (default: false)
+- `separateNoTest`: Show separate NoTest counts in Jira summary (default: false)
+
+**Typical Usage:**
+```
+# Most common - just get today's status with defaults
+get_comprehensive_release_overview()
+
+# Post today's status to Slack
+get_comprehensive_release_overview({"postToSlack": true})
+
+# Get status for a specific date
+get_comprehensive_release_overview({"date": "2025-09-01"})
+```
 
 ## 🔌 MCP Client Integration
 

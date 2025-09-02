@@ -398,7 +398,7 @@ export class TestAnalyzerService {
       const test = latestByType.get(suite);
       if (test) {
         const statusIcon = test.status === 'passed' ? '✅' : test.status === 'failed' ? '❌' : '⏳';
-        output += `• **${suite}**: ${statusIcon}\n`;
+        output += `• *${suite}*: ${statusIcon}\n`;
         if (test.permalink) {
           output += `  └─ <${test.permalink}|Open thread>\n`;
         }
@@ -406,7 +406,7 @@ export class TestAnalyzerService {
           output += `  └─ ${test.hasReview ? test.reviewSummary : '⏳ Awaiting review'}\n`;
         }
       } else {
-        output += `• **${suite}**: ❓ No recent results\n`;
+        output += `• *${suite}*: ❓ No recent results\n`;
       }
     }
 
@@ -417,7 +417,7 @@ export class TestAnalyzerService {
       .filter((t): t is TestResult => !!t);
 
     if (present.length === 0) {
-      output += `❓ **AUTO TEST STATUS: NO RECENT RESULTS**\n`;
+      output += `❓ *AUTO TEST STATUS: NO RECENT RESULTS*\n`;
     } else {
       const allPassed = present.every(t => t.status === 'passed');
 
@@ -438,11 +438,11 @@ export class TestAnalyzerService {
       );
 
       if (allPassed && present.length >= 2) {
-        output += `✅ **AUTO TEST STATUS: ALL PASSED**\n`;
+        output += `✅ *AUTO TEST STATUS: ALL PASSED*\n`;
       } else if (allResolvedOrPassed && present.length >= 2) {
-        output += `✅ **AUTO TEST STATUS: RESOLVED - NOT BLOCKING**\n`;
+        output += `✅ *AUTO TEST STATUS: RESOLVED - NOT BLOCKING*\n`;
       } else {
-        output += `⚠️ **AUTO TEST STATUS: ATTENTION REQUIRED**\n`;
+        output += `⚠️ *AUTO TEST STATUS: ATTENTION REQUIRED*\n`;
       }
     }
 
