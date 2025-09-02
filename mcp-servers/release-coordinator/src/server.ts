@@ -26,6 +26,8 @@ interface OverviewArgs {
   boardId?: number; // Jira board id, default 23
   domain?: string; // Jira domain filter, default 'all'
   separateNoTest?: boolean; // Split NoTest in Jira summary
+  // Optional: Post the overview to Slack
+  postToSlack?: boolean; // default false; when true, post to #qa-release-status
 }
 
 export class ReleaseCoordinatorServer {
@@ -65,6 +67,7 @@ export class ReleaseCoordinatorServer {
               boardId: { type: 'number', description: 'Jira board id (defaults to 23)' },
               domain: { type: 'string', description: 'Jira domain: all | frontend | backend | wordpress | other (defaults to all)' },
               separateNoTest: { type: 'boolean', description: 'Jira: show separate NoTest counts', default: false },
+              postToSlack: { type: 'boolean', description: 'If true, posts the overview to #qa-release-status', default: false },
             },
             required: [],
           },
@@ -89,10 +92,13 @@ export class ReleaseCoordinatorServer {
     const today = new Date();
     const dateLabel = args.date || today.toISOString().slice(0, 10);
 
+    const testingBoardLink = 'https://mobitroll.atlassian.net/jira/software/c/projects/KAHOOT/boards/23';
     const response = `## 🚀 Release Status Overview — ${dateLabel}
 
 ### 📊 Manual Testing Status (Jira)
 ${jiraSummary}
+
+Testing board: <${testingBoardLink}|KAHOOT Board #23>
 
 ### 🤖 Automated Test Status (Slack)
 ${autoStatus}
@@ -103,6 +109,19 @@ ${blockers}
 ---
 Notes:
 - Orchestrated by Release Coordinator. Sections may include Markdown with links from source servers.`;
+
+    // Optionally post to Slack channel #qa-release-status
+    if (args.postToSlack) {
+      try {
+        const postResult = await this.callSlackSendMessage({ channel: '#qa-release-status', text: response });
+        // Append a short confirmation
+        const postedNote = postResult ? `\n\nPosted to #qa-release-status.` : '';
+        return { content: [{ type: 'text', text: response + postedNote }] };
+      } catch (e: any) {
+        const errNote = `\n\n⚠️ Failed to post to Slack: ${e?.message || String(e)}`;
+        return { content: [{ type: 'text', text: response + errNote }] };
+      }
+    }
 
     return { content: [{ type: 'text', text: response }] };
   }
@@ -233,6 +252,28 @@ Notes:
     const items = result?.content || [];
     const textItem = items.find((c: any) => c?.type === 'text' && typeof c.text === 'string');
     return textItem?.text || null;
+  }
+
+  private async callSlackSendMessage(params: { channel: string; text: string }): Promise<boolean> {
+    const client = new Client({ name: 'release-coordinator', version: '1.0.0' });
+    const transport = new StdioClientTransport({
+      command: 'node',
+      args: ['dist/server.js'],
+      cwd: path.resolve(this.getDirname(), '../../slack'),
+      env: this.buildEnv(),
+    });
+    await client.connect(transport);
+    try {
+      const result = await client.callTool({
+        name: 'send_message',
+        arguments: { channel: params.channel, text: params.text },
+      } as any);
+      // If Slack server returns a text, consider it success
+      const ok = !!this.extractTextContent(result);
+      return ok;
+    } finally {
+      await client.close?.().catch(() => undefined);
+    }
   }
 
   private getDirname(): string {

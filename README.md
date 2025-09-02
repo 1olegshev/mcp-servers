@@ -1,6 +1,6 @@
 # MCP Servers Setup
 
-This repository contains MCP (Model Context Protocol) server implementations for Slack, Jira, and Confluence integration. These servers allow you to interact with these services through chat interfaces that support the MCP protocol.
+This repository contains MCP (Model Context Protocol) server implementations for Slack, Jira, Confluence, and Release Coordination. These servers allow you to interact with these services through chat interfaces that support the MCP protocol.
 
 ## 🚀 Quick Start
 
@@ -78,9 +78,14 @@ npm run start:confluence
 
 # All servers simultaneously
 npm run dev
+
+# Release coordinator server
+npm run start:release-coordinator
 ```
 
 ### Available Tools
+
+> **Important:** When running through VS Code with MCP integration (like VS Code Insiders), tool names are prefixed with the server name (e.g., `mcp_slack_send_message`, `mcp_jira_search_issues`, `mcp_release-coord_get_comprehensive_release_overview`). When using direct MCP client connections, use the base tool names listed below.
 
 #### Slack MCP Server
 
@@ -137,6 +142,33 @@ All tools return tickets in the same format:
 - **create_child_page**: Create child pages under specific parents
 - **find_page_by_title**: Find pages by title within spaces
 - **get_page_structure**: Get hierarchical page structure
+
+#### Release Coordinator MCP Server
+
+- **get_comprehensive_release_overview**: Generate comprehensive release status reports
+
+> **Note on Tool Names:** When using these servers through VS Code with MCP integration, tool names are prefixed with the server name. For example, `get_comprehensive_release_overview` becomes `mcp_release-coord_get_comprehensive_release_overview`. The functionality remains the same.
+
+**🚀 Release Coordination:**
+The Release Coordinator orchestrates data from Slack and Jira servers to provide a unified release status overview including:
+- Manual testing status from Jira (In QA, Testing, Test Passed counts)
+- Automated test results from Slack (test failures, reruns, status)
+- Blocking issues analysis from Slack (critical/blocking issues detection)
+- Formatted report with links to source systems
+- Optional automatic posting to Slack #qa-release-status channel
+
+**Example Usage:**
+- *"Generate today's release status report"* → Fetches data from all systems and formats comprehensive overview
+- *"Get release status and post to Slack"* → Same as above but automatically posts to #qa-release-status
+- *"Show release status for September 2nd"* → Historical release status for specific date
+
+**Parameters:**
+- `channel`: Slack channel to analyze (default: functional-testing)
+- `boardId`: Jira board ID (default: 23)
+- `domain`: Filter by domain (all/frontend/backend/wordpress/other)
+- `date`: Date for analysis (ISO format or "today")
+- `postToSlack`: Whether to post results to #qa-release-status
+- `separateNoTest`: Show separate NoTest counts in Jira summary
 
 ## 🔌 MCP Client Integration
 
@@ -205,6 +237,11 @@ Agent: [Finds parent page] → [Creates child page] → [Returns page info and U
         "CONFLUENCE_EMAIL": "your-email@company.com",
         "CONFLUENCE_API_TOKEN": "your-token"
       }
+    },
+    "release-coordinator": {
+      "command": "node",
+      "args": ["path/to/release-coordinator-mcp-server/server.js"],
+      "env": {}
     }
   }
 }
@@ -224,9 +261,10 @@ npm run start
 
 ### Individual Servers:
 ```bash
-npm run dev:jira        # Just Jira server
-npm run start:confluence # Just Confluence server  
-npm run build:slack     # Just build Slack server
+npm run dev:jira                    # Just Jira server
+npm run start:confluence            # Just Confluence server  
+npm run build:slack                 # Just build Slack server
+npm run start:release-coordinator   # Just Release Coordinator server
 ```
 
 ## 🧪 Testing
@@ -247,14 +285,15 @@ This will check:
 
 ```
 ├── mcp-servers/
-│   ├── slack/          # Slack MCP server
-│   ├── jira/           # Jira MCP server
-│   └── confluence/     # Confluence MCP server
-├── mcp_config.json     # MCP client configuration
-├── package.json        # Root dependencies and scripts
-├── setup.sh           # Installation script
-├── test-servers.sh    # Testing script
-└── README.md          # This file
+│   ├── slack/              # Slack MCP server
+│   ├── jira/               # Jira MCP server
+│   ├── confluence/         # Confluence MCP server
+│   └── release-coordinator/ # Release coordination orchestrator
+├── mcp_config.json         # MCP client configuration
+├── package.json            # Root dependencies and scripts
+├── setup.sh               # Installation script
+├── test-servers.sh        # Testing script
+└── README.md              # This file
 ```
 
 Each MCP server:

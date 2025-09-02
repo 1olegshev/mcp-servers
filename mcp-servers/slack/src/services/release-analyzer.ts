@@ -18,13 +18,13 @@ export class ReleaseAnalyzerService {
   async generateReleaseOverview(channel: string, date?: string): Promise<string> {
     const targetDate = date || DateUtils.getTodayDateString();
     
-    // Fetch all potential issues and test results in parallel
+    // Fetch issues using day-bounded messages for precision, but let test analyzer choose its own smart lookback
     const { oldest, latest } = DateUtils.getDateRange(date);
-    const messages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 100);
+    const dayMessages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 200);
     
     const [allIssues, testResults] = await Promise.all([
-      this.issueDetector.findIssues(channel, date, 'both', messages),
-      this.testAnalyzer.analyzeTestResults(channel, date, messages)
+      this.issueDetector.findIssues(channel, date, 'both', dayMessages),
+      this.testAnalyzer.analyzeTestResults(channel, date)
     ]);
     
     // Separate issues by their new, nuanced types
@@ -48,7 +48,7 @@ export class ReleaseAnalyzerService {
     const hasCriticalIssues = criticalIssues.length > 0;
     const hasResolvedBlockers = resolvedBlockers.length > 0;
     
-    const autoTestsAllPassed = testResults.every((t: any) => t.status === 'passed');
+  const autoTestsAllPassed = testResults.length > 0 && testResults.every((t: any) => t.status === 'passed');
     const autoTestsReviewed = testResults
       .filter((t: any) => t.status === 'failed')
       .every((t: any) => t.hasReview && t.reviewSummary?.includes('not blocking'));

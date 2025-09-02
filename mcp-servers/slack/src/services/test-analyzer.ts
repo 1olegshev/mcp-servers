@@ -43,62 +43,149 @@ export class TestAnalyzerService {
     date?: string,
     messages?: SlackMessage[]
   ): Promise<TestResult[]> {
-    // Use provided messages or fetch them with smart date range
-    let messagesToAnalyze: SlackMessage[];
-    if (messages) {
-      messagesToAnalyze = messages;
+    // Helper: date math and query builders
+    const startOfToday = (() => {
+      const d = date ? new Date(date) : new Date();
+      const n = new Date(d);
+      n.setHours(0, 0, 0, 0);
+      return n;
+    })();
+
+    const fmtDate = (d: Date) => d.toISOString().split('T')[0];
+    const addDays = (d: Date, delta: number) => new Date(d.getTime() + delta * 24 * 60 * 60 * 1000);
+    const beforeDateStr = fmtDate(startOfToday);
+
+    // Build phase windows
+    const dayOfWeek = (date ? new Date(date) : new Date()).getDay(); // 0 Sun, 1 Mon
+    const phase1Dates: string[] = [];
+    if (dayOfWeek === 1) {
+      // Monday: try Sun -> Sat -> Fri
+      phase1Dates.push(fmtDate(addDays(startOfToday, -1))); // Sunday
+      phase1Dates.push(fmtDate(addDays(startOfToday, -2))); // Saturday
+      phase1Dates.push(fmtDate(addDays(startOfToday, -3))); // Friday
     } else {
-      const { oldest, latest } = DateUtils.getAutoTestDateRange(date, this.testBotConfig.maxLookbackDays);
-      messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 1000);
+      // Other days: yesterday only
+      phase1Dates.push(fmtDate(addDays(startOfToday, -1)));
     }
-    
-  const testResults: TestResult[] = [];
+    const phase2After = fmtDate(addDays(startOfToday, -this.testBotConfig.maxLookbackDays));
 
-    // Pre-filter to relevant test bot messages
-    const relevant = (messagesToAnalyze || []).filter(m => this.isRelevantTestBot(m));
-    // Do NOT filter to a single calendar day here; use the full fetched range (Fri-Sun on Monday or previous day otherwise)
-    // Let latest-by-type logic pick the closest per-suite post in the range.
-  messagesToAnalyze = relevant;
+    // Suites mapping
+    const suiteBots: Array<{ id: string; name: 'Cypress (general)' | 'Cypress (unverified)' | 'Playwright' }> = [
+      { id: 'B067SLP8AR5', name: 'Cypress (general)' },
+      { id: 'B067SMD5MAT', name: 'Cypress (unverified)' },
+      { id: 'B052372DK4H', name: 'Playwright' },
+    ];
 
-    for (const message of messagesToAnalyze) {
-      // Use improved bot detection
-      if (!this.isRelevantTestBot(message)) {
-        continue;
+    const found: Map<string, SlackMessage> = new Map();
+
+    // Helper: run a per-bot search within [after,before) date bounds and pick newest < startOfToday
+    const findBySearch = async (suite: 'Cypress (general)' | 'Cypress (unverified)' | 'Playwright', after: string, before: string): Promise<SlackMessage | undefined> => {
+      let query = '';
+      if (suite === 'Playwright') {
+        // Confirmed handle for Jenkins user
+        query = `from:@jenkins2 after:${after} before:${before}`;
+      } else {
+        // Use app name and then narrow by text anchors
+        query = `from:Cypress after:${after} before:${before}`;
       }
-      
-      
-      // Extract all text from message (including blocks and attachments)
+      const matches = await this.slackClient.searchMessages(query, channel);
+      // matches already sorted desc per client
+      for (const m of matches) {
+        if (!m.ts) continue;
+        // Ensure it's before today
+        if (parseFloat(m.ts) * 1000 >= startOfToday.getTime()) continue;
+        try {
+          const full = await this.slackClient.getMessageDetails(channel, m.ts);
+          const text = (extractAllMessageText(full).text || '').toLowerCase();
+          // Narrow by suite-specific anchors
+          if (suite === 'Playwright') {
+            if (text.includes('kahoot-frontend-player-qa-playwright') || /frontend\s+qa\s+playwright/.test(text) || /playwright/.test(text)) {
+              return full as SlackMessage;
+            }
+          } else if (suite === 'Cypress (unverified)') {
+            if (text.includes('qa-unverified') || text.includes('frontend-qa-unverified')) {
+              return full as SlackMessage;
+            }
+          } else {
+            if (text.includes('frontend-qa') || text.includes('cypress') || /run\s*#/.test(text) || text.includes('test results')) {
+              return full as SlackMessage;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+      return undefined;
+    };
+
+    // Phase 1: minimal probes (yesterday or Sun->Sat->Fri)
+    for (const dStr of phase1Dates) {
+      // Search per suite if not yet found
+      await Promise.all(
+        suiteBots.map(async ({ id, name }) => {
+          if (found.has(name)) return;
+          const msg = await findBySearch(name, dStr, beforeDateStr);
+          if (msg) found.set(name, msg);
+        })
+      );
+      if (found.size === suiteBots.length) break;
+    }
+
+    // Phase 2: broader 7-day fallback
+    if (found.size < suiteBots.length) {
+      await Promise.all(
+        suiteBots.map(async ({ id, name }) => {
+          if (found.has(name)) return;
+          const msg = await findBySearch(name, phase2After, beforeDateStr);
+          if (msg) found.set(name, msg);
+        })
+      );
+    }
+
+    // Final fallback: history scan in a bounded window
+    const historyFallbackNeeded = found.size < suiteBots.length && !messages;
+    if (historyFallbackNeeded) {
+      const oldestTs = (new Date(phase2After + 'T00:00:00Z').getTime() / 1000).toString();
+      const latestTs = ((startOfToday.getTime() - 1) / 1000).toString();
+      // Fetch smaller page and scan newest-first
+      const history = await this.slackClient.getChannelHistoryForDateRange(channel, oldestTs, latestTs, 200);
+      history.sort((a, b) => parseFloat(b.ts || '0') - parseFloat(a.ts || '0'));
+      for (const m of history) {
+        if (!this.isRelevantTestBot(m)) continue;
+        const type = this.determineTestTypeFromBot(m, (m.text || ''));
+        if (type === 'Unknown Test' || found.has(type)) continue;
+        found.set(type, m);
+        if (found.size === suiteBots.length) break;
+      }
+    }
+
+    // Build results from found messages (ensure consistent order by suite set)
+    const expectedOrder = ['Cypress (general)', 'Cypress (unverified)', 'Playwright'] as const;
+    const testResults: TestResult[] = [];
+    for (const suite of expectedOrder) {
+      const message = found.get(suite);
+      if (!message) continue;
+
       const extractedText = extractAllMessageText(message);
-      
-      // Determine test type directly from bot and content
-      const testType = this.determineTestTypeFromBot(message, extractedText.text);
-      
-      // Skip if we can't determine test type
-      if (testType === 'Unknown Test') continue;
-      
+      const testType = suite;
       const parsedResults = parseTestResultsFromText(extractedText.text);
-      
+
       // Determine status
       let status = parsedResults.status || 'unknown';
       if (status === 'unknown') {
-        // Fallback to existing analyzer
         const { status: fallbackStatus } = TextAnalyzer.analyzeTestResult(message);
         status = fallbackStatus;
       }
-      // Playwright-specific fallback: rely on message/attachments content, not reactions
       if ((status === 'unknown' || status === 'pending') && testType === 'Playwright') {
         const raw = extractedText.text || '';
         const normalized = raw.replace(/\*/g, '').toLowerCase();
-        // Specific phrase used in our Jenkins posts
         const phraseMatch = /frontend\s+qa\s+playwright\s+tests\s+passed/.test(normalized);
-        // Also allow Jenkins/Job context with Success
         const jenkinsSuccess = /kahoot-frontend-player-qa-playwright|playwright/.test(normalized) && /success|passed/.test(normalized);
         if (phraseMatch || jenkinsSuccess) {
           status = 'passed';
         } else if (/(failed)/i.test(normalized)) {
           status = 'failed';
         } else {
-          // Fetch full message details as a last resort and re-parse
           try {
             const full = await this.slackClient.getMessageDetails(channel, message.ts!);
             const fullText = extractAllMessageText(full).text || '';
@@ -116,16 +203,14 @@ export class TestAnalyzerService {
           } catch {}
         }
       }
-      // Normalize to a known set for reporting
+
       const normalizedStatus: 'passed' | 'failed' | 'pending' =
         status === 'passed' || status === 'failed' ? (status as 'passed' | 'failed') : 'pending';
-      
-      // Check for thread analysis
-  const threadAnalysis = await this.checkForReview(message, channel, normalizedStatus);
-  const permalink = await this.slackClient.getPermalink(channel, message.ts!);
-      
-      // Create enhanced result with detailed info
-  let resultText = `${testType}: ${normalizedStatus.toUpperCase()}`;
+
+      const threadAnalysis = await this.checkForReview(message, channel, normalizedStatus);
+      const permalink = await this.slackClient.getPermalink(channel, message.ts!);
+
+      let resultText = `${testType}: ${normalizedStatus.toUpperCase()}`;
       if (parsedResults.runNumber) {
         resultText += ` (Run #${parsedResults.runNumber})`;
       }
@@ -135,12 +220,10 @@ export class TestAnalyzerService {
           resultText += ` +${parsedResults.failedTests.length - 3} more`;
         }
       }
-      
-      // Add extraction info for debugging
       if (extractedText.hasBlocks || extractedText.hasAttachments) {
         resultText += `\n[Extracted from: ${extractedText.hasBlocks ? 'blocks' : ''}${extractedText.hasBlocks && extractedText.hasAttachments ? ', ' : ''}${extractedText.hasAttachments ? 'attachments' : ''}]`;
       }
-      
+
       testResults.push({
         type: testType,
         status: normalizedStatus,

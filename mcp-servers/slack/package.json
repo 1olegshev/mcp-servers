@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc",
     "start": "npm run build && node dist/server.js",
-    "dev": "nodemon --exec \"npm run build && node dist/server.js\" --watch src --ext ts"
+    "dev": "nodemon --exec \"npm run build && node dist/server.js\" --watch src --ext ts",
+    "resolve:bot-users": "npm run build && node dist/scripts/resolve-bot-users.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.3",

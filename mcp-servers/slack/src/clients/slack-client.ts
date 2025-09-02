@@ -116,12 +116,23 @@ export class SlackClient {
   async getThreadReplies(channel: string, threadTs: string): Promise<SlackMessage[]> {
     try {
       const conversation = await this.resolveConversation(channel);
-      const result = await this.slack.conversations.replies({
-        channel: conversation,
-        ts: threadTs,
-      });
+      const all: any[] = [];
+      let cursor: string | undefined;
+      do {
+        const result: any = await this.slack.conversations.replies({
+          channel: conversation,
+          ts: threadTs,
+          limit: 200,
+          cursor,
+        } as any);
+        const msgs = (result.messages || []) as any[];
+        // Skip parent (first page includes parent as first message)
+        const sliceFrom = all.length === 0 ? 1 : 0;
+        all.push(...msgs.slice(sliceFrom));
+        cursor = result.response_metadata?.next_cursor || undefined;
+      } while (cursor);
 
-      return ((result.messages || []).slice(1)) as SlackMessage[]; // Exclude parent message
+      return all as SlackMessage[];
     } catch (error: any) {
       throw new McpError(
         ErrorCode.InternalError,
@@ -144,7 +155,7 @@ export class SlackClient {
         query: q, 
         sort: 'timestamp', // Sort by time for issue detection
         sort_dir: 'desc',
-        count: 20 // Limit results for performance
+        count: 50 // Slightly higher to improve hit rate
       } as any)) as any;
       
       return (result.messages?.matches || []) as any[];
