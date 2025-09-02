@@ -68,6 +68,10 @@ export interface TestResult {
   hasReview: boolean;
   reviewSummary?: string;
   permalink?: string;
+  // Structured fields to avoid parsing brittle text
+  failedTests?: string[];      // Extracted from thread/content
+  statusNote?: string;         // Resolution/status note without the failed-tests prefix
+  perTestStatus?: Record<string, string>; // Map of normalized test name -> status note
 }
 
 export interface Channel {
