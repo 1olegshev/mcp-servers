@@ -8,6 +8,7 @@ import { UserInfo } from '../types/index.js';
 
 export class SlackResolver {
   private userCache = new Map<string, UserInfo>();
+  private channelCache = new Map<string, string>(); // name -> id mapping
 
   constructor(private slack: WebClient) {}
 
@@ -54,6 +55,11 @@ export class SlackResolver {
   }
 
   private async findChannelIdByName(name: string): Promise<string | null> {
+    // Check cache first
+    if (this.channelCache.has(name)) {
+      return this.channelCache.get(name)!;
+    }
+
     let cursor: string | undefined;
     do {
       const res = (await this.slack.conversations.list({
@@ -64,6 +70,8 @@ export class SlackResolver {
       })) as ConversationsListResponse & { response_metadata?: { next_cursor?: string } };
       
       for (const ch of (res.channels || []) as any[]) {
+        // Cache all channels we encounter
+        this.channelCache.set(ch.name, ch.id);
         if (ch.name === name) return ch.id as string;
       }
       cursor = res.response_metadata?.next_cursor || undefined;

@@ -110,16 +110,16 @@ ${blockers}
 Notes:
 - Orchestrated by Release Coordinator. Sections may include Markdown with links from source servers.`;
 
-    // Optionally post to Slack channel #qa-release-status
+        // Optionally post to Slack channel #qa-release-status (C09BW9Y2HSN)
     if (args.postToSlack) {
       try {
-        const postResult = await this.callSlackSendMessage({ channel: '#qa-release-status', text: response });
-        // Append a short confirmation
+        const postResult = await this.callSlackSendMessage({ channel: 'C09BW9Y2HSN', text: response });
+        console.error('Posted to Slack:', postResult);
         const postedNote = postResult ? `\n\nPosted to #qa-release-status.` : '';
         return { content: [{ type: 'text', text: response + postedNote }] };
-      } catch (e: any) {
-        const errNote = `\n\n⚠️ Failed to post to Slack: ${e?.message || String(e)}`;
-        return { content: [{ type: 'text', text: response + errNote }] };
+      } catch (error) {
+        console.error('Failed to post to Slack:', error);
+        return { content: [{ type: 'text', text: response + '\n\nFailed to post to Slack.' }] };
       }
     }
 

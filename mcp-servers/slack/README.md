@@ -110,6 +110,21 @@ npm install
 npm run build
 ```
 
+### Performance Tips
+
+**Use Channel IDs for Better Performance:**
+- Channel names like `#qa-release-status` require expensive API lookups
+- Channel IDs like `C09BW9Y2HSN` resolve instantly
+- For automated/repeated operations, prefer channel IDs
+
+```javascript
+// Slow: requires fetching all channels to resolve name
+channel: "#qa-release-status"
+
+// Fast: direct channel ID lookup
+channel: "C09BW9Y2HSN"
+```
+
 ### Available Tools
 
 1. **get_release_status_overview** – Comprehensive release readiness analysis
