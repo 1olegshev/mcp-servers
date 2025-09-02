@@ -111,7 +111,7 @@ class JiraMCPServer {
       const componentsText = components ? ` | 🧩 ${components}` : '';
       
       return `${index + 1}. **${issue.key}** - ${issue.fields.summary}
-   🔹 ${status} | 🔥 ${priority} | 👤 ${assignee}${labelsText}${componentsText} | 🔗 [Open](${issueUrl})`;
+   🔹 ${status} | 🔥 ${priority} | 👤 ${assignee}${labelsText}${componentsText} | 🔗 <${issueUrl}|Open>`;
     }).join('\n\n---\n\n');
   }
 
@@ -501,7 +501,7 @@ class JiraMCPServer {
 • 🧩 Components: ${components}
 • 📅 Created: ${new Date(issue.fields.created).toLocaleDateString()}
 • ⏰ Updated: ${new Date(issue.fields.updated).toLocaleDateString()}
-• 🔗 [Open in Jira](${issueUrl})`;
+• 🔗 <${issueUrl}|Open in Jira>`;
 
       return this.formatSuccessResponse(`Issue details for ${issue.key}`, details);
     } catch (error: any) {
