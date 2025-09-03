@@ -70,8 +70,7 @@ export class TestReportFormatter {
         const summary = (t.reviewSummary || '').toLowerCase();
         const notBlocking = summary.includes('not blocking');
         const rerunSuccess = summary.includes('manual rerun successful') || /rerun successful|resolved|fixed/.test(summary);
-        const prOrRevert = summary.includes('pr opened') || summary.includes('revert');
-        return notBlocking || (rerunSuccess && prOrRevert);
+        return notBlocking || rerunSuccess;
       };
       const allResolvedOrPassed = present.every(
         t => t.status === 'passed' || isResolvedFailure(t)
