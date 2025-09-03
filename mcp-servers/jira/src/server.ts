@@ -416,8 +416,7 @@ class JiraMCPServer {
       }
 
       // Format as clean table
-      let result = `⚡ *Testing Summary*\n\n`;
-      result += `\`\`\`\n`;
+      let result = `\`\`\`\n`;
       result += `Category                   │ QA │ Testing │ Passed │ Total\n`;
       result += `───────────────────────────┼────┼─────────┼────────┼──────\n`;
       

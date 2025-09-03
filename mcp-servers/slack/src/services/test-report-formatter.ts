@@ -4,12 +4,11 @@ export class TestReportFormatter {
   constructor(private parseFailedTestsFromSummary: (summary?: string) => string[]) {}
 
   format(testResults: TestResult[], getTestTypeFromMessage: (t: TestResult) => string, date?: string): string {
-    let output = `🤖 Auto Test Status${date ? ` for ${date}` : ''}:\n\n`;
+    let output = `🔬 Latest Test Results:\n`;
 
     const expectedSuites = ['Cypress (general)', 'Cypress (unverified)', 'Playwright'] as const;
     const latestByType = this.getLatestByType(testResults, getTestTypeFromMessage);
 
-    output += `🔬 Latest Test Results:\n`;
     for (const suite of expectedSuites) {
       const test = latestByType.get(suite);
       if (test) {
