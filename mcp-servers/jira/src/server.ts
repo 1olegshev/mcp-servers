@@ -19,6 +19,13 @@ class JiraMCPServer {
   private baseUrl: string;
   private readonly NO_TEST_LABELS = ['NoTest', 'no-test', 'notest', 'noTest', 'Notest'];
   private readonly TEAM_QUERIES: Record<string, string> = {
+    'expedite': 'priority = Blocker',
+    'corporate-learning': 'labels in (corporate-learning, coreteamx, KahootX)',
+    'engaging-learning-gamefactory': 'labels in (engaging-learning, GameFactory)',
+    'engaging-learning-skynet': 'labels in (SkynetTeam)',
+    'engaging-learning-puzzles': 'project = "DragonBox Labs and Puzzles" OR labels in (PuzzlesTeam)',
+    'core3-commercial': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
+    // Legacy aliases for backward compatibility
     'commercial': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
     'onlineteam': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
     'marketplace': 'project = "Online and Projects Team" OR labels in (coreteam3, Coreteam3, commercial, Commercial, onlineteam, onlineteam_IPM, marketplace, kahoot-remix)',
@@ -141,13 +148,14 @@ class JiraMCPServer {
           // Keep the tool list focused on testing progress
           {
             name: 'get_testing_summary',
-            description: 'Summarize counts for In QA, Testing, Test Passed on board scope, optionally per domain (frontend/backend/wordpress/other). NoTest excluded by default.',
+            description: 'Summarize counts for In QA, Testing, Test Passed on board scope, optionally per domain (frontend/backend/wordpress/other) and/or by teams. NoTest excluded by default.',
             inputSchema: {
               type: 'object',
               properties: {
                 boardId: { type: 'number', description: 'Jira board id', default: 23 },
                 domain: { type: 'string', description: 'all | frontend | backend | wordpress | other', default: 'all' },
-                separateNoTest: { type: 'boolean', description: 'If true, adds a separate NoTest counts block', default: false }
+                separateNoTest: { type: 'boolean', description: 'If true, adds a separate NoTest counts block', default: false },
+                byTeams: { type: 'boolean', description: 'If true, adds breakdown by teams', default: true }
               },
               required: []
             }
@@ -246,7 +254,7 @@ class JiraMCPServer {
           case 'get_issue_details':
             return await this.getIssueDetails((args as any)?.issueKey);
           case 'get_testing_summary':
-            return await this.getTestingSummary((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.separateNoTest ?? false);
+            return await this.getTestingSummary((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.separateNoTest ?? false, (args as any)?.byTeams ?? true);
           case 'get_testing_remaining':
             return await this.getTestingRemaining((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.statuses, (args as any)?.limit ?? 50, (args as any)?.separateNoTest ?? false);
           default:
@@ -300,7 +308,14 @@ class JiraMCPServer {
     return cleanParts.map(part => `(${part})`).join(' AND ');
   }
 
-  private async getTestingSummary(boardId: number, domain: string, separateNoTest: boolean) {
+  private formatTestingSummaryLine(label: string, counts: {inqa: number, testing: number, passed: number}, indent: string = ''): string {
+    const total = counts.inqa + counts.testing + counts.passed;
+    // Clean table-like format with wider columns for full words
+    const cleanLabel = label.replace(/[•-]/g, '').replace(/:/g, '').trim();
+    return `${cleanLabel.padEnd(26)} │ ${counts.inqa.toString().padStart(2)} │ ${counts.testing.toString().padStart(7)} │ ${counts.passed.toString().padStart(6)} │ ${total.toString().padStart(5)}`;
+  }
+
+  private async getTestingSummary(boardId: number, domain: string, separateNoTest: boolean, byTeams: boolean) {
     try {
       const baseJql = await this.jira.getBoardFilterJql(boardId);
       const domainJql = this.buildDomainJql(domain);
@@ -323,8 +338,12 @@ class JiraMCPServer {
       const total = counts.inqa + counts.testing + counts.passed;
 
       let lines: string[] = [];
-      const label = domain === 'all' ? 'Overall' : domain.charAt(0).toUpperCase() + domain.slice(1);
-      lines.push(`• ${label}: In QA ${counts.inqa} | Testing ${counts.testing} | Test Passed ${counts.passed} | Total ${total}`);
+      const label = domain === 'all' ? '• Overall:' : `• ${domain.charAt(0).toUpperCase() + domain.slice(1)}:`;
+      lines.push(this.formatTestingSummaryLine(label, counts));
+
+      // Initialize team variables outside the block
+      let hasTeamData = false;
+      const teamLines: string[] = [];
 
       if (domain === 'all') {
         // Add per-domain lines
@@ -339,9 +358,45 @@ class JiraMCPServer {
             else if (s === 'Testing') c.testing++;
             else if (s === 'Test Passed') c.passed++;
           }
-          const t = c.inqa + c.testing + c.passed;
-          const name = d.charAt(0).toUpperCase() + d.slice(1);
-          lines.push(`  - ${name}: In QA ${c.inqa} | Testing ${c.testing} | Test Passed ${c.passed} | Total ${t}`);
+          const name = `- ${d.charAt(0).toUpperCase() + d.slice(1)}:`;
+          lines.push(this.formatTestingSummaryLine(name, c, '  '));
+        }
+      }
+
+      if (byTeams) {
+        // Add per-team breakdown        
+        // Define shorter display names for better alignment
+        const teamDisplayNames: Record<string, string> = {
+          'expedite': 'Expedite',
+          'corporate-learning': 'Corporate Learning',
+          'engaging-learning-gamefactory': 'GameFactory',
+          'engaging-learning-skynet': 'SkynetTeam',
+          'engaging-learning-puzzles': 'PuzzlesTeam',
+          'core3-commercial': 'Core3/Commercial/Online'
+        };
+        
+        // Main swimlane teams first
+        const priorityTeams = ['expedite', 'corporate-learning', 'engaging-learning-gamefactory', 'engaging-learning-skynet', 'engaging-learning-puzzles', 'core3-commercial'];
+        
+        for (const teamKey of priorityTeams) {
+          if (this.TEAM_QUERIES[teamKey]) {
+            const teamJql = this.TEAM_QUERIES[teamKey];
+            const teamFilterJql = this.buildRobustJql([baseJql, domainJql, statusJql, teamJql], false);
+            const teamRes = await this.jira.searchIssues(teamFilterJql, 200);
+            const tc = { inqa: 0, testing: 0, passed: 0 };
+            for (const issue of teamRes.issues || []) {
+              const s = issue.fields.status?.name || '';
+              if (s === 'In QA') tc.inqa++;
+              else if (s === 'Testing') tc.testing++;
+              else if (s === 'Test Passed') tc.passed++;
+            }
+            const total = tc.inqa + tc.testing + tc.passed;
+            if (total > 0) { // Only show teams with tickets
+              hasTeamData = true;
+              const teamName = `- ${teamDisplayNames[teamKey] || teamKey.charAt(0).toUpperCase() + teamKey.slice(1)}:`;
+              teamLines.push(this.formatTestingSummaryLine(teamName, tc));
+            }
+          }
         }
       }
 
@@ -357,10 +412,38 @@ class JiraMCPServer {
           else if (s === 'Test Passed') n.passed++;
         }
         const t = n.inqa + n.testing + n.passed;
-        lines.push(`• NoTest (separate): In QA ${n.inqa} | Testing ${n.testing} | Test Passed ${n.passed} | Total ${t}`);
+        lines.push(this.formatTestingSummaryLine('• NoTest (separate):', n));
       }
 
-      return this.formatSuccessResponse('Testing summary', lines.join('\n'));
+      // Format as clean table
+      let result = `⚡ *Testing Summary*\n\n`;
+      result += `\`\`\`\n`;
+      result += `Category                   │ QA │ Testing │ Passed │ Total\n`;
+      result += `───────────────────────────┼────┼─────────┼────────┼──────\n`;
+      
+      // Add non-team lines only (Overall and domain breakdown)
+      const mainLines = lines.filter(line => 
+        !line.includes('Corporate Learning') && 
+        !line.includes('Engaging Learning') && 
+        !line.includes('Core3/Commercial') && 
+        !line.includes('Expedite') &&
+        !line.includes('**Teams:**') && 
+        line.trim() !== ''
+      );
+      result += mainLines.join('\n');
+      result += `\n\`\`\``;
+      
+      // Add team section separately if there are team lines
+      if (hasTeamData && teamLines.length > 0) {
+        result += `\n\n*By Teams:*\n\n`;
+        result += `\`\`\`\n`;
+        result += `Team                       │ QA │ Testing │ Passed │ Total\n`;
+        result += `───────────────────────────┼────┼─────────┼────────┼──────\n`;
+        result += teamLines.join('\n');
+        result += `\n\`\`\``;
+      }
+
+      return this.formatSuccessResponse('Testing summary', result);
     } catch (error: any) {
       throw new Error(`Failed to get testing summary: ${error.message}`);
     }
