@@ -367,10 +367,10 @@ export class IssueDetectorService {
     }
     
     if (issues.length === 0) {
-      output += `✅ **No blocking or critical issues found**\n`;
+      output += `✅ *No blocking or critical issues found*\n`;
       output += `Release deployment can proceed from issue perspective.`;
     } else {
-      output += `\n📋 **Action Required:**\n`;
+      output += `\n📋 *Action Required:*\n`;
       if (blockingIssues.length > 0) {
         output += `• Review ${blockingIssues.length} blocking issue${blockingIssues.length !== 1 ? 's' : ''} - must be resolved before release\n`;
       }
