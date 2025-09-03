@@ -4,39 +4,32 @@
  */
 
 import { SlackClient } from '../clients/slack-client.js';
+import { TEST_BOT_IDS, JENKINS_PATTERN, EARLY_MORNING_CUTOFF, MAX_LOOKBACK_DAYS } from './test-bot-config.js';
 import { TextAnalyzer } from '../utils/analyzers.js';
 import { DateUtils } from '../utils/date-utils.js';
 import { TestResult, SlackMessage } from '../types/index.js';
 import { extractAllMessageText, isBotMessage, parseTestResultsFromText } from '../utils/message-extractor.js';
-// Note: Removed file-based debug logging for cleaner runtime
+import { ThreadAnalyzerService } from './thread-analyzer.js';
+import { TestReportFormatter } from './test-report-formatter.js';
+// Note: Debug logging can be enabled for troubleshooting
+
+const logDebug = (msg: string) => {
+  // Uncomment the following lines when debugging is needed:
+  // try {
+  //   import('fs').then(fs => {
+  //     fs.appendFileSync('/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack/slack-mcp-debug.log', `${msg}\n`);
+  //   });
+  // } catch {}
+};
 
 export class TestAnalyzerService {
-  // Configuration for which bots/patterns to look for
-  private testBotConfig = {
-    // All test bot IDs from actual detection: Cypress general, Cypress unverified, Jenkins/Playwright
-    testBotIds: ['B067SLP8AR5', 'B067SMD5MAT', 'B052372DK4H'], // Cypress general, Cypress unverified, Jenkins/Playwright
-    jenkinsPattern: 'kahoot-frontend-player-qa-playwright',
-    
-    // Early morning cutoff for "current date" consideration
-    earlyMorningCutoff: 1, // 1:00 AM
-    
-    // Lookback range for finding tests
-    maxLookbackDays: 7,
-    
-    // Test result patterns for detection (updated to match actual format)
-    testResultPatterns: [
-      'run #\\d+',
-      'test results:',
-      'failed run',
-      'frontend-qa',
-      'kahoot-frontend-player-qa-playwright',
-      'failed.*test',
-      'passed.*test',
-      'specs for review'
-    ]
-  };
+  private threads: ThreadAnalyzerService;
+  private formatter: TestReportFormatter;
 
-  constructor(private slackClient: SlackClient) {}
+  constructor(private slackClient: SlackClient) {
+    this.threads = new ThreadAnalyzerService(slackClient);
+    this.formatter = new TestReportFormatter((summary?: string) => this.parseFailedTestsFromSummary(summary));
+  }
 
   async analyzeTestResults(
     channel: string, 
@@ -56,7 +49,7 @@ export class TestAnalyzerService {
     const beforeDateStr = fmtDate(startOfToday);
 
     // Build phase windows
-    const dayOfWeek = (date ? new Date(date) : new Date()).getDay(); // 0 Sun, 1 Mon
+  const dayOfWeek = (date ? new Date(date) : new Date()).getDay(); // 0 Sun, 1 Mon
     const phase1Dates: string[] = [];
     if (dayOfWeek === 1) {
       // Monday: try Sun -> Sat -> Fri
@@ -67,13 +60,13 @@ export class TestAnalyzerService {
       // Other days: yesterday only
       phase1Dates.push(fmtDate(addDays(startOfToday, -1)));
     }
-    const phase2After = fmtDate(addDays(startOfToday, -this.testBotConfig.maxLookbackDays));
+  const phase2After = fmtDate(addDays(startOfToday, -MAX_LOOKBACK_DAYS));
 
     // Suites mapping
     const suiteBots: Array<{ id: string; name: 'Cypress (general)' | 'Cypress (unverified)' | 'Playwright' }> = [
-      { id: 'B067SLP8AR5', name: 'Cypress (general)' },
-      { id: 'B067SMD5MAT', name: 'Cypress (unverified)' },
-      { id: 'B052372DK4H', name: 'Playwright' },
+  { id: TEST_BOT_IDS[0], name: 'Cypress (general)' },
+  { id: TEST_BOT_IDS[1], name: 'Cypress (unverified)' },
+  { id: TEST_BOT_IDS[2], name: 'Playwright' },
     ];
 
     const found: Map<string, SlackMessage> = new Map();
@@ -151,7 +144,8 @@ export class TestAnalyzerService {
       const history = await this.slackClient.getChannelHistoryForDateRange(channel, oldestTs, latestTs, 200);
       history.sort((a, b) => parseFloat(b.ts || '0') - parseFloat(a.ts || '0'));
       for (const m of history) {
-        if (!this.isRelevantTestBot(m)) continue;
+        // Strict filter: only messages from known test bot IDs
+        if (!m.bot_id || !TEST_BOT_IDS.includes(m.bot_id)) continue;
         const type = this.determineTestTypeFromBot(m, (m.text || ''));
         if (type === 'Unknown Test' || found.has(type)) continue;
         found.set(type, m);
@@ -175,6 +169,41 @@ export class TestAnalyzerService {
       if (status === 'unknown') {
         const { status: fallbackStatus } = TextAnalyzer.analyzeTestResult(message);
         status = fallbackStatus;
+      }
+      
+      logDebug(`[${new Date().toISOString()}] STATUS CHECK: ${testType} - initial status: "${status}", parsed: "${parsedResults.status}"`);
+      
+      // Cypress-specific status detection from blocks content (override if clear)
+      if (testType === 'Cypress (general)' || testType === 'Cypress (unverified)') {
+        const allText = extractedText.text || '';
+        logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - extracted text: "${allText}"`);
+        // Remove markdown formatting and check for status patterns
+        const cleanText = allText.replace(/\*/g, '').toLowerCase();
+        logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - clean text: "${cleanText}"`);
+        const passPattern = /test results:\s*passed|passed run|failed:\s*0\b.*\bpassed:\s*\d+/i;
+        const failPattern = /test results:\s*failed|failed run\b/i;
+        if (passPattern.test(cleanText)) {
+          status = 'passed';
+          logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - OVERRIDE -> PASSED (by blocks)`);
+        } else if (failPattern.test(cleanText)) {
+          status = 'failed';
+        } else {
+          // Try fetching full message details to include any missing block text
+          try {
+            const full = await this.slackClient.getMessageDetails(channel, message.ts!);
+            const fullText = extractAllMessageText(full).text || '';
+            const fullClean = fullText.replace(/\*/g, '').toLowerCase();
+            logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - full clean text: "${fullClean}"`);
+            if (passPattern.test(fullClean)) {
+              status = 'passed';
+              logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - OVERRIDE -> PASSED (by full blocks)`);
+            } else if (failPattern.test(fullClean)) {
+              status = 'failed';
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
       }
       if ((status === 'unknown' || status === 'pending') && testType === 'Playwright') {
         const raw = extractedText.text || '';
@@ -207,7 +236,7 @@ export class TestAnalyzerService {
       const normalizedStatus: 'passed' | 'failed' | 'pending' =
         status === 'passed' || status === 'failed' ? (status as 'passed' | 'failed') : 'pending';
 
-  const threadAnalysis = await this.checkForReview(message, channel, normalizedStatus);
+  const threadAnalysis = await this.threads.checkForReview(message, channel, normalizedStatus);
       const permalink = await this.slackClient.getPermalink(channel, message.ts!);
 
       let resultText = `${testType}: ${normalizedStatus.toUpperCase()}`;
@@ -245,298 +274,18 @@ export class TestAnalyzerService {
    * Improved bot detection specifically for test automation
    */
   private isRelevantTestBot(message: SlackMessage): boolean {
-    // First check if it's a bot message at all
-    if (!isBotMessage(message)) {
-      return false;
-    }
-    
-    const botId = message.bot_id;
-    
-    // Check for known test bot IDs - this should be sufficient
-    if (botId && this.testBotConfig.testBotIds.includes(botId)) {
-      return true;
-    }
-    // Fallbacks: Some Jenkins/Playwright posts might not carry bot_id. Use username/text hints.
-    const username = ((message as any).username || '').toLowerCase();
-    const text = (message.text || '').toLowerCase();
-    if (username.includes('jenkins') || text.includes('playwright')) {
-      return true;
-    }
-    // Allow unverified cypress by text hints as a safety net
-    if (text.includes('qa-unverified') || text.includes('frontend-qa-unverified')) {
-      return true;
-    }
-
-    return false;
-  }
-
-  private async checkForReview(
-    message: SlackMessage, 
-    channel: string, 
-    status: string
-  ): Promise<{ hasReview: boolean; summary: string; failedTests?: string[]; statusNote?: string; perTestStatus?: Record<string, string> }> {
-    if (status !== 'failed' || !(message.thread_ts || (message.reply_count || 0) > 0)) {
-      return { hasReview: false, summary: '' };
-    }
-
-    try {
-      const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
-  const analysis = this.analyzeThreadContent(replies, message);
-      
-      return {
-        hasReview: analysis.hasActivity,
-        summary: analysis.summary,
-        failedTests: analysis.failedTests,
-        statusNote: analysis.statusNote,
-        perTestStatus: analysis.perTestStatus,
-      };
-    } catch (error) {
-      console.error('Failed to check test review:', error);
-    }
-
-  return { hasReview: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {} };
-  }
-
-  /**
-   * Analyze thread content for test outcomes and investigation status
-   */
-  private analyzeThreadContent(
-    replies: SlackMessage[],
-    originalMessage: SlackMessage
-  ): { hasActivity: boolean; summary: string; failedTests: string[]; statusNote: string; perTestStatus: Record<string, string> } {
-    if (replies.length === 0) {
-      return { hasActivity: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {} };
-    }
-
-    // Aggregate text from message, blocks, attachments across the thread
-    const collectText = (m: SlackMessage) => {
-      const parts: string[] = [];
-      if (m.text) parts.push(m.text);
-      if ((m as any).blocks) {
-        parts.push(extractAllMessageText(m).extractedFromBlocks || '');
-      }
-      if ((m as any).attachments) {
-        parts.push(extractAllMessageText(m).extractedFromAttachments || '');
-      }
-      return parts.filter(Boolean).join(' ');
-    };
-    const threadTexts = [collectText(originalMessage), ...replies.map(collectText)];
-    const allText = threadTexts.join(' ').toLowerCase();
-    
-    // Extract failed test names from original message and thread
-    const failedTests = this.extractFailedTestNames(allText);
-    const normalizeTest = (t: string) => t
-      .replace(/\.(test|spec)\.[jt]sx?/i, '')
-      .replace(/\.[jt]sx?/i, '')
-      .replace(/^.*[\/]/, '')
-      .trim();
-    const normalizedFailed = Array.from(new Set(failedTests.map(normalizeTest)));
-
-    // Build per-test status by scanning thread text around each test name
-    const perTestStatus: Record<string, string> = {};
-    for (const t of normalizedFailed) {
-      const tEsc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const patt = new RegExp(`${tEsc}[^\n]{0,80}(passed|fixed|resolved|green|not blocking|revert|retry|rerun|investigat|still failing)`, 'i');
-      const m = (threadTexts.join('\n')).match(patt);
-      if (m) {
-        const kw = m[1].toLowerCase();
-        let note = '';
-        if (/(passed|fixed|resolved|green)/.test(kw)) note = '✅ resolved';
-        else if (/not\s+blocking/.test(kw)) note = '✅ not blocking';
-        else if (/revert/.test(kw)) note = '♻️ revert planned/applied';
-        else if (/(retry|rerun)/.test(kw)) note = '🔄 rerun in progress';
-        else if (/investigat/.test(kw)) note = '🔍 investigating';
-        else if (/still\s+failing/.test(kw)) note = '❌ still failing';
-        if (note) perTestStatus[t] = note;
-      }
-    }
-    
-    // Analyze thread for outcomes
-    const outcomes = {
-      // rerun success signals
-      rerunSuccessful: /(re[- ]?run|re\s*run|re\s*-\s*run).*pass|passed on re\s*[- ]?run|fixed|resolved|all\s+tests\s+pass/i.test(allText),
-      // investigation in progress
-      underInvestigation: /investigat|will\s+look|looking\s+into|checking|check\s+it\s+out|on\s+it/i.test(allText),
-      // explicit non-blocking statements
-      notBlocking: /not\s+blocking|reviewed\s*[—-]?\s*not\s+blocking|green\s+light|not\s+(a\s+)?release\s+blocker/i.test(allText),
-      // still failing after attempts
-      stillFailing: /still\s+fail|re[- ]?run\s+fail|not\s+fixed|issue\s+persists|keeps\s+failing/i.test(allText),
-      // revert intent or action
-      revert: /\bwill\s+revert\b|\brevert(ed)?\b/i.test(allText),
-      // PR signal (explicit words or GitHub PR URL)
-      prOpened: /(https?:\/\/\S*github\.com\/\S*\/pull\/\d+)|\b(pr|pull\s*request)\b|opening\s*pr|opened\s*pr/i.test(allText)
-    } as const;
-
-    // Build summary and a clean status note
-    let summary = '';
-    let statusNote = '';
-    if (failedTests.length > 0) {
-      summary += `Failed tests: ${failedTests.slice(0, 3).join(', ')}${failedTests.length > 3 ? '...' : ''}. `;
-    }
-
-    if (outcomes.rerunSuccessful) {
-      summary += 'Manual rerun successful ✅';
-      statusNote = 'Manual rerun successful ✅';
-    }
-    if (!outcomes.rerunSuccessful && outcomes.notBlocking) {
-      summary += (summary ? ' • ' : '') + 'Reviewed - not blocking ✅';
-      statusNote = 'Reviewed - not blocking ✅';
-    }
-    if (!outcomes.rerunSuccessful && outcomes.stillFailing) {
-      summary += (summary ? ' • ' : '') + 'Still failing after rerun ❌';
-      statusNote = 'Still failing after rerun ❌';
-    }
-    if (outcomes.revert) {
-      summary += (summary ? ' • ' : '') + 'revert planned/applied';
-      statusNote = statusNote ? `${statusNote} • revert planned/applied` : 'revert planned/applied';
-    }
-    if (outcomes.prOpened) {
-      summary += (summary ? ' • ' : '') + 'PR opened';
-      statusNote = statusNote ? `${statusNote} • PR opened` : 'PR opened';
-    }
-    if (!summary) {
-      if (outcomes.underInvestigation) {
-        summary = 'Under investigation 🔍';
-        statusNote = 'Under investigation 🔍';
-      } else {
-        summary = 'Thread activity - status unclear';
-        statusNote = 'Thread activity - status unclear';
-      }
-    }
-
-    return {
-      hasActivity: true,
-      summary: summary.trim(),
-      failedTests: normalizedFailed,
-      statusNote: statusNote.trim(),
-      perTestStatus,
-    };
-  }
-
-  /**
-   * Extract specific test file names from text
-   */
-  private extractFailedTestNames(text: string): string[] {
-    // Normalize percent-encoding and slashes, then extract basenames and dedupe
-    let processed = text;
-    try { processed = decodeURIComponent(text); } catch {}
-    processed = processed.replace(/%2F/gi, '/');
-    const fileRegex = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)\.[jt]sx?)/gi;
-    const matches = processed.match(fileRegex) || [];
-    const normalized = matches.map(m => {
-      const cleaned = m.replace(/^\/*/, '');
-      const base = cleaned.replace(/^.*[\\/]/, '');
-      return base.replace(/^2f+/i, '');
-    });
-    return Array.from(new Set(normalized));
+    // Simplified: rely solely on known test bot IDs
+    return !!message.bot_id && TEST_BOT_IDS.includes(message.bot_id);
   }
 
   formatTestStatusReport(testResults: TestResult[], date?: string): string {
-    let output = `🤖 Auto Test Status${date ? ` for ${date}` : ''}:\n\n`;
-
-    const expectedSuites = ['Cypress (general)', 'Cypress (unverified)', 'Playwright'] as const;
-    const latestByType = this.getLatestByType(testResults);
-
-    output += `🔬 Latest Test Results:\n`;
-    for (const suite of expectedSuites) {
-      const test = latestByType.get(suite);
-      if (test) {
-        const statusIcon = test.status === 'passed' ? '✅' : test.status === 'failed' ? '❌' : '⏳';
-        
-        // 1. Header with embedded link
-        if (test.permalink) {
-          output += `• <${test.permalink}|*${suite}*>: ${statusIcon}\n`;
-        } else {
-          output += `• *${suite}*: ${statusIcon}\n`;
-        }
-        
-        // 2. Individual failed tests on separate lines (only for failed tests)
-        if (test.status === 'failed') {
-          // Prefer structured failedTests; fallback to parsing summary if empty
-          const failedTests = (
-            (test.failedTests && test.failedTests.length > 0)
-              ? test.failedTests
-              : this.parseFailedTestsFromSummary(test.reviewSummary)
-          ).slice(0, 6);
-          for (const testName of failedTests) {
-            // Bold each test name; strip extensions and trailing punctuation
-            let display = testName
-              .replace(/\.(test|spec)\.[jt]sx?$/i, '')
-              .replace(/\.[jt]sx?$/i, '')
-              .replace(/[.,…\s]+$/g, '');
-            const note = test.perTestStatus && test.perTestStatus[display] ? ` — ${test.perTestStatus[display]}` : '';
-            output += `  • *${display}*${note}\n`;
-          }
-
-          // 3. Overall summary for this test run
-          const reviewStatus = (test.statusNote || '').trim();
-          if (reviewStatus) {
-            output += `  └─ ${reviewStatus}\n`;
-          } else if (test.hasReview) {
-            output += `  └─ Thread activity - status unclear\n`;
-          } else {
-            output += `  └─ ⏳ Awaiting review\n`;
-          }
-        }
-      } else {
-        output += `• *${suite}*: ❓ No recent results\n`;
-      }
-      output += '\n';
-    }
-
-    const present = expectedSuites
-      .map(s => latestByType.get(s))
-      .filter((t): t is TestResult => !!t);
-
-    if (present.length === 0) {
-      output += `❓ *AUTO TEST STATUS: NO RECENT RESULTS*\n`;
-    } else {
-      const allPassed = present.every(t => t.status === 'passed');
-
-      // Consider a failed suite resolved if the thread indicates either:
-      // - explicitly not blocking, or
-      // - rerun success AND (PR opened OR revert planned/applied)
-      const isResolvedFailure = (t: TestResult): boolean => {
-        if (t.status !== 'failed' || !t.hasReview) return false;
-        const summary = (t.reviewSummary || '').toLowerCase();
-        const notBlocking = summary.includes('not blocking');
-        const rerunSuccess = summary.includes('manual rerun successful') || /rerun successful|resolved|fixed/.test(summary);
-        const prOrRevert = summary.includes('pr opened') || summary.includes('revert');
-        return notBlocking || (rerunSuccess && prOrRevert);
-      };
-
-      const allResolvedOrPassed = present.every(
-        t => t.status === 'passed' || isResolvedFailure(t)
-      );
-
-      if (allPassed && present.length >= 2) {
-        output += `✅ *AUTO TEST STATUS: ALL PASSED*\n`;
-      } else if (allResolvedOrPassed && present.length >= 2) {
-        output += `✅ *AUTO TEST STATUS: RESOLVED - NOT BLOCKING*\n`;
-      } else {
-        output += `⚠️ *AUTO TEST STATUS: ATTENTION REQUIRED*\n`;
-      }
-    }
-
-    return output;
+    return this.formatter.format(testResults, (t: TestResult) => this.getTestTypeFromMessage(t), date);
   }
 
   /**
    * Get the latest test result for each test type
    */
-  private getLatestByType(testResults: TestResult[]): Map<string, TestResult> {
-    const byType = new Map<string, TestResult>();
-    testResults
-      .slice()
-      .sort((a, b) => parseFloat(b.timestamp) - parseFloat(a.timestamp))
-      .forEach(result => {
-        const key = this.getTestTypeFromMessage(result);
-        if ((key === 'Cypress (general)' || key === 'Cypress (unverified)' || key === 'Playwright') && !byType.has(key)) {
-          byType.set(key, result);
-        }
-      });
-    return byType;
-  }
+  // Note: getLatestByType moved into formatter; keep getTestTypeFromMessage available
 
   /**
    * Extract test type from message content - simplified based on bot ID
@@ -619,7 +368,7 @@ export class TestAnalyzerService {
     const targetDate = date || new Date().toISOString().split('T')[0];
     
     // Search for each test bot individually
-    for (const botId of this.testBotConfig.testBotIds) {
+  for (const botId of TEST_BOT_IDS) {
       try {
         const query = `from:<@${botId}> after:${targetDate}`;
         const results = await this.slackClient.searchMessages(query, channel);

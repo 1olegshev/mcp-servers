@@ -40,6 +40,29 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "build:slack-only",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"mcp-servers/slack",
+				"run",
+				"build"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "start:slack-on-stdio",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"mcp-servers/slack/dist/server.js"
+			],
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }

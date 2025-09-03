@@ -1,3 +1,4 @@
+import fs from 'fs';
 /**
  * Slack Message Text Extraction Utilities
  * Based on slack_mcp_github approach to handle Block Kit and attachments
@@ -253,10 +254,13 @@ export function parseTestResultsFromText(text: string): {
     processed = decodeURIComponent(text);
   } catch {}
   processed = processed.replace(/%2F/gi, '/');
-  const textLower = processed.toLowerCase();
+  // Normalize Slack mrkdwn: convert <url|label> -> label, strip bold markers
+  let cleaned = processed.replace(/<[^|>]+\|([^>]+)>/g, '$1');
+  cleaned = cleaned.replace(/\*/g, '');
+  const textLower = cleaned.toLowerCase();
 
   // Look for run numbers
-  const runMatch = processed.match(/Run #(\d+)/i);
+  const runMatch = cleaned.match(/Run #(\d+)/i);
   if (runMatch) {
     result.runNumber = runMatch[1];
   }
@@ -270,16 +274,40 @@ export function parseTestResultsFromText(text: string): {
     result.testType = 'playwright';
   }
   
-  // Look for status indicators - prioritize failure detection
-  if (textLower.includes('failed run') || textLower.includes('failed build') || 
-      (textLower.includes('failed') && textLower.includes('test')) || 
-      processed.includes('❌')) {
+  // Look for status indicators with explicit Cypress signals
+  const testResultsPassed = /test\s*results:\s*passed/i.test(cleaned);
+  const testResultsFailed = /test\s*results:\s*failed/i.test(cleaned);
+  const failedCountMatch = cleaned.match(/failed:\s*(\d+)/i);
+  const passedCountMatch = cleaned.match(/passed:\s*(\d+)/i);
+  const failedCount = failedCountMatch ? parseInt(failedCountMatch[1], 10) : undefined;
+  const passedCount = passedCountMatch ? parseInt(passedCountMatch[1], 10) : undefined;
+
+  if (testResultsFailed) {
     result.status = 'failed';
-  } else if (textLower.includes('passed run') || textLower.includes('passed build') || 
-             textLower.includes('success') ||
-             (textLower.includes('passed') && !textLower.includes('failed')) || 
-             processed.includes('✅') || processed.includes('🟢')) {
-    result.status = 'passed';
+  } else if (testResultsPassed) {
+    if (failedCount === undefined || failedCount === 0) {
+      result.status = 'passed';
+    } else if (failedCount > 0) {
+      result.status = 'failed';
+    }
+  } else if (typeof failedCount === 'number') {
+    result.status = failedCount > 0 ? 'failed' : 'passed';
+  }
+
+  // Fallback heuristics if still unknown
+  if (!result.status) {
+    if (/failed\s*run|failed\s*build/i.test(cleaned) || processed.includes('❌')) {
+      result.status = 'failed';
+    } else if (/passed\s*run|passed\s*build|success/i.test(cleaned) || processed.includes('✅') || processed.includes('🟢')) {
+      result.status = 'passed';
+    }
+  }
+
+  // Optional debug: ambiguous pass case where 'failed' word appears but Failed: 0
+  if (result.status === 'passed' && /failed/i.test(processed) && failedCount === 0) {
+    try {
+      fs.appendFileSync('/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack/slack-mcp-debug.log', `[${new Date().toISOString()}] DEBUG: Ambiguous pass resolved via Failed: 0\n`);
+    } catch {}
   }
   
   // Extract failed test names (pattern: filename_spec.ts or similar)

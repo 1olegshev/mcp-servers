@@ -107,6 +107,39 @@ const myService = new MyService(slackClient);
 this.myHandler = new MyHandler(slackClient, myService);
 ```
 
+### 📋 Adding Test Result Formatting
+
+**1. Formatter Service** (`services/my-formatter.ts`)
+```typescript
+export class MyFormatter {
+  format(results: Result[]): string {
+    let output = `📊 My Results:\n\n`;
+    
+    for (const result of results) {
+      if (result.status === 'passed') {
+        output += `• *${result.name}*: ✅\n`;
+        output += `  All tests passed\n\n`;
+      } else if (result.status === 'failed') {
+        output += `• *${result.name}*: ❌\n`;
+        output += `  Details: ${result.details}\n\n`;
+      }
+    }
+    
+    return output;
+  }
+}
+```
+
+**2. Multi-line Formatting Pattern**
+```typescript
+// ✅ Do: Clear multi-line formatting
+output += `• *Test Suite*: ✅\n`;
+output += `  All tests passed\n\n`;
+
+// ❌ Avoid: Single line with too much info
+output += `• *Test Suite*: ✅ All tests passed\n`;
+```
+
 ### 🎛️ Adding Error Handling
 
 **1. Custom Error** (`handlers/base-handler.ts`)
@@ -132,6 +165,21 @@ try {
     `Service operation failed: ${error.message}`
   );
 }
+```
+
+**3. ESM Module Errors** (Common Fix)
+```typescript
+// ❌ Don't: CommonJS require
+const fs = require('fs');
+
+// ✅ Do: ES module import
+import fs from 'fs';
+
+// ❌ Don't: Missing .js extension
+import { MyClass } from './my-module';
+
+// ✅ Do: Include .js extension
+import { MyClass } from './my-module.js';
 ```
 
 ## 📋 Common Patterns
@@ -215,6 +263,12 @@ const result = await this.slackClient.someOperation(); // Missing try/catch
 
 // Don't hardcode channel IDs
 await this.slackClient.sendMessage('C1234567', text);
+
+// Don't use CommonJS in ESM context
+const fs = require('fs'); // Will cause module loading errors
+
+// Don't omit .js extensions in imports
+import { Tool } from './my-tool'; // Missing .js extension
 ```
 
 ### ✅ Do
@@ -232,6 +286,12 @@ try {
 
 // Resolve channels dynamically
 const channel = await this.slackClient.resolveConversation(args.channel);
+
+// Use ES modules properly
+import fs from 'fs'; // Correct ES module import
+
+// Include .js extensions
+import { Tool } from './my-tool.js'; // Correct import path
 ```
 
 ## 📈 Performance Tips
@@ -259,3 +319,39 @@ if (message.thread_ts || (message.reply_count || 0) > 0) {
 ```
 
 This quick reference provides the most common patterns you'll need when working with this codebase!
+
+## 🔧 Troubleshooting Quick Fixes
+
+### ESM Module Issues
+```bash
+# Error: "require() not found" or "import not recognized"
+npm run build  # Always rebuild after TypeScript changes
+
+# Check import paths have .js extensions
+grep -r "from '\./.*[^.]'" src/  # Find imports missing .js
+
+# Verify no CommonJS usage
+grep -r "require(" src/  # Should return no results
+```
+
+### Test Result Formatting Issues
+```typescript
+// To test formatting changes:
+npm run build
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_auto_test_status", "arguments": {"date": "2025-09-03"}}}' | node dist/server.js
+
+// Or test with coordinator posting to Slack:
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "mcp_release-coord_get_comprehensive_release_overview", "arguments": {"date": "2025-09-03", "postToSlack": true}}}' | node dist/server.js
+```
+
+### Performance Debugging
+```typescript
+// Check message limits and date ranges
+const { oldest, latest } = DateUtils.getDateRange('2025-09-03');
+console.log(`Scanning ${oldest} to ${latest}`);
+
+// Monitor API calls in logs
+const messages = await this.slackClient.getChannelHistoryForDateRange(
+  channel, oldest, latest, 50 // Reduce limit for testing
+);
+```

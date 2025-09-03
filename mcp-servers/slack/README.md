@@ -4,11 +4,54 @@ A Model Context Protocol (MCP) server for interacting with Slack workspaces, des
 
 ## Features
 
-- **Release Status Analysis**: Comprehensive analysis of functional testing channels to determine release readiness
+- **Release Status Ana### Troubleshooting
+
+#### Authentication Issues
+
+- **"invalid_auth" error**: Token expired, extract new XOXC/XOXD
+- **"missing_scope" error**: User lacks permissions for requested action
+- **Network errors**: Check if Slack is accessible
+
+#### Token Extraction Problems
+
+- **Can't find d cookie**: Clear browser cache and try again
+- **XOXC not in headers**: Make sure you're logged in and making API requests
+- **Tokens don't work**: Verify workspace and token format
+
+#### Channel Access Issues
+
+- **"channel_not_found"**: User doesn't have access to channel
+- **"Write access restricted"**: Trying to post to unauthorized channel
+- **"is_archived"**: Channel has been archived
+
+#### Module Loading Issues
+
+- **ESM/CommonJS errors**: Project uses ES modules - ensure all imports use `.js` extensions
+- **"require() not found"**: Indicates CommonJS usage in ESM context - update to import statements
+- **Build errors**: Run `npm run build` after making changes to TypeScript filesive analysis ### Auto Test Analysis Contract
+
+- **Test Suites**: Always reports status for all three suites:
+  - Cypress (general) – bot_id: B067SLP8AR5
+  - Cypress (unverified) – bot_id: B067SMD5MAT
+  - Playwright (Jenkins) – bot_id: B052372DK4H (fallback by username/text if missing)
+- **Time Window Logic**:
+  - Monday: fetch Fri→Sun (inclusive); otherwise: previous day
+  - Uses inclusive history to avoid boundary misses; per-suite latest is selected within the window
+- **Enhanced Parsing and Detection**:
+  - Blocks and attachments text are extracted and parsed
+  - Playwright marked passed when "Success/PASSED/🟢/green" is present
+  - Threads analyzed for: rerun success, not blocking, still failing, PR opened, revert
+- **Improved Output Formatting**:
+  - Passed tests show: "✅" followed by "All tests passed" on next line
+  - Failed tests show detailed failure information with review status
+  - Clear spacing between test result sections
+- **Output**: Always shows all three suites with status and Slack permalink to parent messagetesting channels to determine release readiness
+- **Enhanced Test Reporting**: Improved formatting with clear "All tests passed" messages for successful tests
 - **Channel Communication**: Read from any channel, write only to authorized release channels
-- **Auto Test Monitoring**: Detection and analysis of automated test results
-- **Blocking Issue Detection**: Identification of critical and blocking issues
+- **Auto Test Monitoring**: Detection and analysis of automated test results with thread review analysis
+- **Blocking Issue Detection**: Identification of critical and blocking issues with JIRA ticket extraction
 - **Secure Channel Access**: Restricted write permissions for controlled release communication
+- **Modular Architecture**: Clean separation of concerns with dedicated services for analysis, formatting, and communication
 
 ## Authentication
 
@@ -127,17 +170,29 @@ channel: "C09BW9Y2HSN"
 
 ### Available Tools
 
-1. **get_release_status_overview** – Comprehensive release readiness analysis
-2. **get_auto_test_status** – Auto test results for 3 suites + thread review status
-3. **get_blocking_issues** – Critical/blocking issue detection
-4. **get_channel_history** – Read messages from any channel
+1. **get_release_status_overview** – Comprehensive release readiness analysis with formatted output
+2. **get_auto_test_status** – Auto test results for 3 suites + thread review status with improved formatting
+3. **get_blocking_issues** – Critical/blocking issue detection with JIRA ticket extraction
+4. **get_channel_history** – Read messages from any channel with user resolution
 5. **send_message** – Post messages (restricted to qa-release-status only)
 6. **list_channels** – List workspace channels
 7. **search_messages** – Search across workspace
 8. **add_reaction** – Add emoji reactions
 9. **get_thread_replies** – Read thread discussions
 10. **get_message_details** – Fetch full message including blocks/attachments
-11. **find_bot_messages** – Inspect bot messages and extracted text
+11. **find_bot_messages** – Inspect bot messages and extracted text for debugging
+
+## Architecture Notes (Auto Test Analysis)
+
+- **Bot Detection**: Simplified and optimized bot detection using strict TEST_BOT_IDS mapping. No longer uses fuzzy username/text heuristics, improving speed and reducing false positives.
+- **Thread Analysis**: Extracted to `services/thread-analyzer.ts` (ThreadAnalyzerService) which reads thread replies and produces structured results: failedTests[], statusNote, perTestStatus mapping and summary.
+- **Report Formatting**: Handled by `services/test-report-formatter.ts` (TestReportFormatter). Renders Slack-friendly output with improved formatting:
+  - ✅ All tests passed (for successful tests)
+  - Clear multi-line formatting with proper spacing
+  - Detailed failure information with review status
+- **Main Orchestration**: `services/test-analyzer.ts` coordinates: finding bot messages, determining pass/fail status, requesting review context from ThreadAnalyzerService, and delegating formatting to TestReportFormatter.
+- **Issue Detection**: `services/issue-detector.ts` handles blocking/critical issue detection and is used by the ReleaseAnalyzer.
+- **ESM Compatibility**: Full ES modules support with clean imports and no CommonJS dependencies for better performance and compatibility.
 
 ### MCP Configuration
 
@@ -213,7 +268,9 @@ src/
 ├── services/
 │   ├── issue-detector.ts    # Blocking/critical issue detection
 │   ├── release-analyzer.ts  # Orchestrates test + issues into release overview
-│   └── test-analyzer.ts     # Auto test analysis (Cypress/Playwright) + threads
+│   ├── test-analyzer.ts     # Auto test analysis (Cypress/Playwright) + threads
+│   ├── thread-analyzer.ts   # Dedicated thread analysis and review status detection
+│   └── test-report-formatter.ts # Test result formatting with improved output styling
 ├── utils/
 │   ├── analyzers.ts         # Text analysis helpers (severity, details)
 │   ├── date-utils.ts        # Monday/prev-day windows, lookback

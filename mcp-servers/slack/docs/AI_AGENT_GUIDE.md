@@ -21,6 +21,8 @@ src/
 ├── services/                # 🏢 Business logic layer
 │   ├── issue-detector.ts    # 🔍 Find blocking/critical issues
 │   ├── test-analyzer.ts     # 🧪 Analyze auto test results
+│   ├── thread-analyzer.ts   # 🧵 Dedicated thread review analysis
+│   ├── test-report-formatter.ts # 📋 Format test results with improved styling
 │   └── release-analyzer.ts  # 📊 Release status decisions
 ├── handlers/                # 🎛️ MCP tool handlers
 │   ├── base-handler.ts      # 🏗️ Common patterns
@@ -29,6 +31,7 @@ src/
 ├── utils/                   # 🛠️ Utility functions
 │   ├── resolvers.ts         # 🔗 Channel/user resolution
 │   ├── analyzers.ts         # 🕵️ Text analysis
+│   ├── message-extractor.ts # 📄 Block/attachment parsing
 │   └── date-utils.ts        # 📅 Date handling
 └── types/
     └── index.ts             # 📋 TypeScript definitions
@@ -94,10 +97,26 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Output**: Structured issue reports with JIRA tickets
 
 #### 🧪 **test-analyzer.ts**  
-- **Purpose**: Analyze automated test results and reviews
-- **Key Methods**: `analyzeTestResults()`, `formatTestStatusReport()`
-- **Detection**: Bot message patterns, test status, review threads
-- **Output**: Test status summaries with review status
+- **Purpose**: Analyze automated test results and coordinate analysis pipeline
+- **Key Methods**: `analyzeTestResults()`, orchestrates analysis workflow
+- **Detection**: Bot message patterns, test status via bot IDs
+- **Dependencies**: ThreadAnalyzerService, TestReportFormatter
+- **Output**: Coordinates between detection, thread analysis, and formatting
+
+#### 🧵 **thread-analyzer.ts** (NEW)
+- **Purpose**: Dedicated thread review status analysis
+- **Key Methods**: `checkForReview()`, `analyzeThreadReplies()`
+- **Analysis**: Manual rerun results, blocking status, PR/revert mentions
+- **Output**: Structured review summaries with per-test status
+
+#### 📋 **test-report-formatter.ts** (NEW)
+- **Purpose**: Format test results with improved styling and clarity
+- **Key Methods**: `format()`, `getLatestByType()`
+- **Features**: 
+  - Multi-line formatting: "✅" on first line, "All tests passed" on second
+  - Clear spacing between test sections
+  - Detailed failure information with review context
+- **Output**: Slack-friendly markdown with enhanced readability
 
 #### 📊 **release-analyzer.ts**
 - **Purpose**: Generate comprehensive release readiness decisions
@@ -167,9 +186,22 @@ Channel Messages → Text Analysis → Pattern Detection → Business Logic → 
 
 ### ✅ **Adding New Analysis Features**
 1. **Create analyzer function** in `utils/analyzers.ts`
-2. **Add service method** in appropriate service
-3. **Update handler** to use new service method
-4. **Add tool definition** if exposing to MCP
+2. **Add service method** in appropriate service (consider thread-analyzer for review logic)
+3. **Update formatter** in `test-report-formatter.ts` if output changes needed
+4. **Update handler** to use new service method
+5. **Add tool definition** if exposing to MCP
+
+### ✅ **Working with Test Result Formatting**
+1. **Modify display logic** in `services/test-report-formatter.ts`
+2. **Update status rendering** in `format()` method
+3. **Test formatting** by running coordinator with `postToSlack: true`
+4. **Consider spacing** and multi-line formatting for readability
+
+### ✅ **Adding Thread Analysis Features**
+1. **Extend thread-analyzer.ts** for new review patterns
+2. **Update review detection** in `analyzeThreadReplies()`
+3. **Add new status types** to `perTestStatus` mapping
+4. **Update formatter** to display new status information
 
 ### ✅ **Modifying Authentication**
 - **File**: `auth/slack-auth.ts`
@@ -204,6 +236,31 @@ export class NewService {
 
 // 2. Inject in server.ts
 const newService = new NewService(slackClient);
+
+// 3. For formatting services, consider TestReportFormatter pattern
+export class NewFormatter {
+  format(data: DataType[]): string {
+    // Multi-line formatting with proper spacing
+    let output = "📊 Header:\n\n";
+    data.forEach(item => {
+      output += `• ${item.name}: ✅\n`;
+      output += `  Status details\n\n`;
+    });
+    return output;
+  }
+}
+```
+
+#### Adding Test Result Formatting
+```typescript
+// Update test-report-formatter.ts
+if (test.status === 'passed') {
+  output += `• *${suite}*: ✅\n`;
+  output += `  All tests passed\n`;
+} else if (test.status === 'custom') {
+  output += `• *${suite}*: 🔄\n`;
+  output += `  Custom status message\n`;
+}
 ```
 
 #### Adding New Tool
@@ -236,16 +293,19 @@ async newTool(args: ToolArgs) {
 - **Always** extend BaseHandler for consistent error patterns
 - **Use** McpError for MCP-compatible error responses
 - **Catch** Slack API errors and convert appropriately
+- **ESM Modules**: Use import statements, avoid require() - project is full ES modules
 
 ### ⚠️ **Performance**
 - **Cache** user lookups in SlackResolver
 - **Limit** message history queries (default 200 messages)
 - **Paginate** large result sets
+- **Optimize** formatter output by minimizing API calls
 
-### ⚠️ **Testing**
-- **Services** are isolated and testable
-- **Mock** SlackClient for service tests
-- **Validate** tool schemas separately
+### ⚠️ **Module System**
+- **Use ES modules**: All imports must use `.js` extensions
+- **Avoid CommonJS**: No require() statements - use import/export
+- **Build before testing**: Always run `npm run build` after TypeScript changes
+- **Debug logging**: Removed file-based logging to avoid ESM issues
 
 ## 🎯 Business Logic Context
 
