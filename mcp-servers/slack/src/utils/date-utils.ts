@@ -16,7 +16,18 @@ export class DateUtils {
    * Get Unix timestamp range for a specific date
    */
   static getDateRange(dateStr?: string): { oldest: string; latest: string } {
-    const targetDate = dateStr ? new Date(dateStr) : new Date();
+    let targetDate: Date;
+    
+    if (!dateStr || dateStr === 'today') {
+      targetDate = new Date();
+    } else {
+      targetDate = new Date(dateStr);
+      // Check if the date is invalid
+      if (isNaN(targetDate.getTime())) {
+        throw new Error(`Invalid date format: ${dateStr}. Use YYYY-MM-DD format or 'today'.`);
+      }
+    }
+    
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
@@ -36,7 +47,18 @@ export class DateUtils {
    * - Fallback: up to 7 days lookback
    */
   static getAutoTestDateRange(requestDate?: string, maxLookbackDays: number = 7): { oldest: string; latest: string } {
-    const now = requestDate ? new Date(requestDate) : new Date();
+    let now: Date;
+    
+    if (!requestDate || requestDate === 'today') {
+      now = new Date();
+    } else {
+      now = new Date(requestDate);
+      // Check if the date is invalid
+      if (isNaN(now.getTime())) {
+        throw new Error(`Invalid date format: ${requestDate}. Use YYYY-MM-DD format or 'today'.`);
+      }
+    }
+    
     const currentHour = now.getHours();
     
     // If it's very early morning (before 1 AM), treat as previous day

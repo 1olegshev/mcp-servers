@@ -171,7 +171,7 @@ export class SlackMCPServer {
             type: 'object',
             properties: {
               channel: { type: 'string', description: 'Channel to analyze (defaults to functional-testing)', default: 'functional-testing' },
-              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format, defaults to today)' },
+              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format or "today", defaults to today)' },
               severity: { type: 'string', description: 'Issue severity to find', enum: ['blocking', 'critical', 'both'], default: 'both' },
             },
           },
@@ -183,7 +183,7 @@ export class SlackMCPServer {
             type: 'object',
             properties: {
               channel: { type: 'string', description: 'Channel to analyze (defaults to functional-testing)', default: 'functional-testing' },
-              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format, defaults to today)' },
+              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format or "today", defaults to today)' },
             },
           },
         },
@@ -194,7 +194,7 @@ export class SlackMCPServer {
             type: 'object',
             properties: {
               channel: { type: 'string', description: 'Channel to analyze (defaults to functional-testing)', default: 'functional-testing' },
-              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format, defaults to today)' },
+              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format or "today", defaults to today)' },
             },
           },
         },

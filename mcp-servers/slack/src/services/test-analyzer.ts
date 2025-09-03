@@ -38,7 +38,7 @@ export class TestAnalyzerService {
   ): Promise<TestResult[]> {
     // Helper: date math and query builders
     const startOfToday = (() => {
-      const d = date ? new Date(date) : new Date();
+      const d = date ? (date === 'today' ? new Date() : new Date(date)) : new Date();
       const n = new Date(d);
       n.setHours(0, 0, 0, 0);
       return n;
@@ -49,7 +49,7 @@ export class TestAnalyzerService {
     const beforeDateStr = fmtDate(startOfToday);
 
     // Build phase windows
-  const dayOfWeek = (date ? new Date(date) : new Date()).getDay(); // 0 Sun, 1 Mon
+  const dayOfWeek = (date ? (date === 'today' ? new Date() : new Date(date)) : new Date()).getDay(); // 0 Sun, 1 Mon
     const phase1Dates: string[] = [];
     if (dayOfWeek === 1) {
       // Monday: try Sun -> Sat -> Fri
