@@ -1,0 +1,24 @@
+# MCP Release Status Automation Cron Schedule
+# 
+# Production schedule: Daily release status at 12:05 PM on weekdays (Mon-Fri)
+5 12 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+
+# To install this schedule:
+# crontab /Users/olegshevchenko/Sourses/MCP/scripts/cron-schedule.txt
+#
+# To view current cron jobs:
+# crontab -l
+#
+# To remove all cron jobs:
+# crontab -r
+
+# Alternative schedules (for reference, currently commented out):
+#
+# Every 2 hours during business hours (9 AM to 5 PM) on weekdays:
+# 0 9,11,13,15,17 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+#
+# Twice daily (morning and afternoon) on weekdays:
+# 0 9,15 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+#
+# Test run (set to a few minutes from now):
+# 15 13 * * * /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
