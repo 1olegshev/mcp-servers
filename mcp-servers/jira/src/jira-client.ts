@@ -9,7 +9,7 @@ export class JiraClient {
     this.config = config;
     
     this.client = axios.create({
-      baseURL: `${config.baseUrl}/rest/api/2`,
+      baseURL: `${config.baseUrl}/rest/api/3`,
       auth: {
         username: config.email,
         password: config.apiToken
@@ -24,7 +24,7 @@ export class JiraClient {
 
   async testConnection(): Promise<boolean> {
     try {
-      console.error('Testing connection to:', `${this.config.baseUrl}/rest/api/2/myself`);
+      console.error('Testing connection to:', `${this.config.baseUrl}/rest/api/3/myself`);
       console.error('Using email:', this.config.email);
       console.error('Token length:', this.config.apiToken?.length || 0);
       
@@ -49,7 +49,7 @@ export class JiraClient {
 
   async searchIssues(jql: string, maxResults: number = 50): Promise<JiraSearchResult> {
     try {
-      const response = await this.client.post('/search', {
+      const response = await this.client.post('/search/jql', {
         jql,
         maxResults,
         fields: ['summary', 'status', 'assignee', 'reporter', 'priority', 'issuetype', 'labels', 'components', 'created', 'updated', 'project']
