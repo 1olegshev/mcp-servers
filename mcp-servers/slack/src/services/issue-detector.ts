@@ -16,96 +16,172 @@ export class IssueDetectorService {
     this.jiraBaseUrl = process.env.JIRA_BASE_URL || '';
   }
 
+  /**
+   * Extract thread_ts from permalink URL if not present in message object
+   * Slack search API sometimes doesn't populate thread_ts field but includes it in permalink
+   */
+  private extractThreadTsFromPermalink(message: any): string | undefined {
+    if (message.thread_ts) {
+      return message.thread_ts;
+    }
+
+    // Try to extract from permalink: /archives/CHANNEL/pTIMESTAMP?thread_ts=THREAD_TS
+    const permalink = message.permalink;
+    if (permalink) {
+      const threadTsMatch = permalink.match(/[?&]thread_ts=([^&]+)/);
+      if (threadTsMatch) {
+        return threadTsMatch[1];
+      }
+    }
+
+    return undefined;
+  }
+
   async findIssues(
     channel: string,
     date?: string,
-    severity: 'blocking' | 'critical' | 'both' = 'both',
-    messages?: SlackMessage[]
+    severity: 'blocking' | 'critical' | 'both' = 'both'
   ): Promise<Issue[]> {
-    // Prefer a search-first strategy using severity keywords, then minimal history fallback
-    let messagesToAnalyze: SlackMessage[] = [];
-    if (messages) {
-      messagesToAnalyze = messages;
-    } else {
-  const { oldest, latest } = DateUtils.getDateRange(date);
-  const after = new Date(parseFloat(oldest) * 1000);
-  const before = new Date(parseFloat(latest) * 1000);
-  const dayAfter = new Date(before.getTime() + 1); // next day start boundary
-  const fmt = (d: Date) => d.toISOString().split('T')[0];
+    // Step 1: Initial Sweep with `search` to find "seed" messages
+    const { oldest, latest } = DateUtils.getDateRange(date);
+    const after = new Date(parseFloat(oldest) * 1000);
+    const before = new Date(parseFloat(latest) * 1000);
+    const dayAfter = new Date(before.getTime() + 1);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+    const dateQuery = date === 'today' || !date ? 'on:today' : `after:${fmt(after)} before:${fmt(dayAfter)}`;
+    
+    const searches = [
+      `"release blocker" ${dateQuery}`,
+      `blocker ${dateQuery}`,
+      `blocking ${dateQuery}`,
+      `critical ${dateQuery}`,
+      `urgent ${dateQuery}`,
+      `hotfix ${dateQuery}`,
+      `"no go" ${dateQuery}`,
+    ];
 
-      // Build severity query
-      const blockingQ = '(blocker OR blocking OR "release blocker" OR "no-go" OR "no go")';
-      const criticalQ = '(critical OR urgent OR "high priority")';
-      const sevQ = severity === 'blocking' ? blockingQ : severity === 'critical' ? criticalQ : `${blockingQ} OR ${criticalQ}`;
 
-      // Use date bounds in search; Slack supports after:/before:
-  // Precise single-day bound: after:DATE before:DATE+1 (Slack search uses date granularity)
-  const q = `${sevQ} after:${fmt(after)} before:${fmt(dayAfter)}`;
+    let seedMessages: SlackMessage[] = [];
+    try {
+      const searchPromises = searches.map(query => this.slackClient.searchMessages(query, channel));
+      const results = await Promise.allSettled(searchPromises);
+      const seenTs = new Set<string>();
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          for (const m of result.value) {
+            if (m.ts && !seenTs.has(m.ts)) {
+              seenTs.add(m.ts);
+              seedMessages.push(m as SlackMessage);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('An error occurred during the search phase:', e);
+      return [];
+    }
+
+    // Step 1.5: Filter out seed messages containing any negative phrase
+    const negativePhrases = [
+      'not blocking',
+      'not a blocker',
+      'not urgent',
+      'not critical',
+      'not super high priority',
+      'low priority',
+      'no need to tackle immediately',
+      'not tackle immediately',
+      'not immediately',
+      'no longer blocking'
+    ];
+
+    seedMessages = seedMessages.filter(msg => {
+      const text = (msg.text || '').toLowerCase();
+      return !negativePhrases.some(phrase => text.includes(phrase));
+    });
+
+    // Step 2: Identify Unique Relevant Threads from Seeds
+    const relevantThreadIds = new Set<string>();
+    for (const message of seedMessages) {
+      // Use helper to extract thread_ts from permalink if not in message object
+      const extractedThreadTs = this.extractThreadTsFromPermalink(message);
+      const threadId = extractedThreadTs || message.ts!;
+      relevantThreadIds.add(threadId);
+    }
+
+    const allIssues: Issue[] = [];
+
+    // Step 3: Fetch Full, Guaranteed Context and Analyze Each Thread
+    for (const threadId of relevantThreadIds) {
+      let fullThreadMessages: SlackMessage[] = [];
+      let parentMessage: SlackMessage;
 
       try {
-        const matches = await this.slackClient.searchMessages(q, channel);
-        const seenTs = new Set<string>();
-        for (const m of matches) {
-          const ts = m.ts as string | undefined;
-          if (!ts || seenTs.has(ts)) continue;
-          seenTs.add(ts);
-          try {
-            const full = await this.slackClient.getMessageDetails(channel, ts);
-            messagesToAnalyze.push(full as SlackMessage);
-          } catch {}
+        // Fetch the parent message details directly. This is our anchor.
+        parentMessage = await this.slackClient.getMessageDetails(channel, threadId);
+        // Then, fetch the replies for that thread.
+        fullThreadMessages = await this.slackClient.getThreadReplies(channel, threadId);
+        // Ensure the parent is part of the full text for ticket extraction
+        if (!fullThreadMessages.some(m => m.ts === parentMessage.ts)) {
+            fullThreadMessages.unshift(parentMessage);
         }
-      } catch {}
-
-      // Fallback to minimal history if no matches
-      if (messagesToAnalyze.length === 0) {
-        const limit = 200; // small window for the day only
-        messagesToAnalyze = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, limit);
+      } catch (e) {
+        console.error(`Failed to fetch full context for thread ${threadId}:`, e);
+        continue; // Skip this thread if we can't get its full context
       }
-    }
-    
-    const issues: Issue[] = [];
 
-    for (const message of messagesToAnalyze) {
-      await this.analyzeMessage(message, channel, severity, issues);
-    }
+      // Step 4: Apply Analysis Logic to the Full Thread Context
+      // We pass the parent message to analysis, which can then correctly re-fetch the thread if needed.
+      const issueAnalysis = await this.analyzeIssueWithContext(parentMessage, channel, parentMessage.text || '');
 
-    return issues;
-  }
+      if (issueAnalysis.type === 'none' || !this.shouldIncludeIssue(issueAnalysis.type, severity)) {
+        continue;
+      }
 
-  private async analyzeMessage(
-    message: SlackMessage, 
-    channel: string, 
-    severity: string, 
-    issues: Issue[]
-  ): Promise<void> {
-    const text = message.text || '';
-    
-    // Enhanced issue analysis that returns a detailed status
-    const issueAnalysis = await this.analyzeIssueWithContext(message, channel, text);
-    
-    // Determine if the issue should be included based on its type and the requested severity
-    if (issueAnalysis.type !== 'none' && this.shouldIncludeIssue(issueAnalysis.type, severity)) {
-      const tickets = TextAnalyzer.extractTickets(text, this.jiraBaseUrl);
-      // Deduplicate tickets by key
-      const seen = new Set<string>();
-      const dedupedTickets = tickets.filter(t => {
-        if (seen.has(t.key)) return false;
-        seen.add(t.key);
-        return true;
-      });
-      const permalink = await this.slackClient.getPermalink(channel, message.ts!);
-      
-      issues.push({
+      // To extract tickets, we need the text of all messages in the thread.
+      const fullThreadText = fullThreadMessages.map(m => m.text || '').filter(Boolean).join(' ');
+      const tickets = TextAnalyzer.extractTickets(fullThreadText, this.jiraBaseUrl);
+      const dedupedTickets = Array.from(new Map(tickets.map(t => [t.key, t])).values());
+      const permalink = await this.slackClient.getPermalink(channel, parentMessage.ts!);
+
+      allIssues.push({
         type: issueAnalysis.type,
-        text: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
+        text: (parentMessage.text || '').substring(0, 200) + ((parentMessage.text || '').length > 200 ? '...' : ''),
         tickets: dedupedTickets,
-        timestamp: message.ts!,
-        hasThread: !!message.thread_ts || (message.reply_count || 0) > 0,
+        timestamp: parentMessage.ts!,
+        hasThread: fullThreadMessages.length > 1,
         resolutionText: issueAnalysis.resolutionText,
         permalink,
       });
     }
+
+    // Step 5: Final Deduplication by Ticket (first mention per ticket/thread)
+    const ticketToIssue = new Map<string, Issue>();
+    const threadToTicket = new Map<string, Set<string>>();
+
+    for (const issue of allIssues) {
+      // For each ticket in this issue, if not already mapped, map to this issue (first mention wins)
+      for (const ticket of issue.tickets) {
+        if (!ticketToIssue.has(ticket.key)) {
+          ticketToIssue.set(ticket.key, issue);
+        }
+        // Track which tickets are mentioned in which threads
+        const threadId = issue.timestamp;
+        if (!threadToTicket.has(threadId)) {
+          threadToTicket.set(threadId, new Set());
+        }
+        threadToTicket.get(threadId)!.add(ticket.key);
+      }
+    }
+
+    // Prepare final deduped list: one issue per unique ticket, with thread link from first mention
+    const dedupedIssues: Issue[] = Array.from(ticketToIssue.values());
+    return dedupedIssues;
   }
+
+  // analyzeMessage is now removed as its logic is integrated into findIssues
+
 
   // This method is now removed as its logic is integrated into analyzeMessage
   // private async analyzeThreadReplies(...) {}
@@ -395,14 +471,16 @@ export class IssueDetectorService {
   formatIssuesReport(issues: Issue[], date?: string, channel = 'functional-testing'): string {
   const blockingIssues = issues.filter(i => i.type === 'blocking');
   const criticalIssues = issues.filter(i => i.type === 'critical');
-    
+  const resolvedBlockers = issues.filter(i => i.type === 'blocking_resolved');
+
   let output = `🔍 Issue Analysis for ${date || 'today'} in #${channel}:\n\n`;
-    
+
     // Summary line
     const summary = [];
     if (blockingIssues.length > 0) summary.push(`${blockingIssues.length} blocker${blockingIssues.length !== 1 ? 's' : ''}`);
     if (criticalIssues.length > 0) summary.push(`${criticalIssues.length} critical`);
-    
+    if (resolvedBlockers.length > 0) summary.push(`${resolvedBlockers.length} resolved blocker${resolvedBlockers.length !== 1 ? 's' : ''}`);
+
     if (summary.length > 0) {
       output += `• **Summary**: ${summary.join(', ')} found\n\n`;
     }
@@ -463,7 +541,36 @@ export class IssueDetectorService {
         output += '\n---\n\n';
       });
     }
-    
+
+    if (resolvedBlockers.length > 0) {
+      output += `🟠 **RESOLVED BLOCKERS** (${resolvedBlockers.length}):\n`;
+      output += `*Previously blocking issues that have been resolved*\n\n`;
+
+      resolvedBlockers.forEach((issue, i) => {
+        output += `**${i + 1}. Resolved Blocker**\n`;
+
+        if (issue.tickets.length > 0) {
+          const uniq = new Map(issue.tickets.map(t => [t.key, t]));
+          output += `🎫 **Tickets**: `;
+          const ticketLinks = Array.from(uniq.values()).map(ticket => {
+            return ticket.url ? `[${ticket.key}](${ticket.url})` : ticket.key;
+          });
+          output += ticketLinks.join(', ') + '\n';
+        }
+
+        if (issue.resolutionText) {
+          output += `✅ **Resolution**: ${issue.resolutionText.substring(0, 100)}${issue.resolutionText.length > 100 ? '...' : ''}\n`;
+        }
+
+        if (issue.permalink) {
+          const label = issue.hasThread ? 'Open thread' : 'Open message';
+          output += `🔗 <${issue.permalink}|${label}>\n`;
+        }
+
+        output += '\n---\n\n';
+      });
+    }
+
     if (issues.length === 0) {
       output += `✅ *No blocking or critical issues found*\n`;
       output += `Release deployment can proceed from issue perspective.`;
@@ -474,6 +581,9 @@ export class IssueDetectorService {
       }
       if (criticalIssues.length > 0) {
         output += `• Monitor ${criticalIssues.length} critical issue${criticalIssues.length !== 1 ? 's' : ''} - may impact release timeline\n`;
+      }
+      if (resolvedBlockers.length > 0) {
+        output += `• Verify ${resolvedBlockers.length} resolved blocker${resolvedBlockers.length !== 1 ? 's' : ''} - ensure resolution is complete\n`;
       }
     }
 

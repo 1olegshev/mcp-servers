@@ -23,7 +23,7 @@ export class ReleaseAnalyzerService {
     const dayMessages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 200);
     
     const [allIssues, testResults] = await Promise.all([
-      this.issueDetector.findIssues(channel, date, 'both', dayMessages),
+      this.issueDetector.findIssues(channel, date, 'both'),
       this.testAnalyzer.analyzeTestResults(channel, date)
     ]);
     
