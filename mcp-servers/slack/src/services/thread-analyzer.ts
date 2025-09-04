@@ -9,7 +9,7 @@ export class ThreadAnalyzerService {
     message: SlackMessage,
     channel: string,
     status: string
-  ): Promise<{ hasReview: boolean; summary: string; failedTests?: string[]; statusNote?: string; perTestStatus?: Record<string, string> }> {
+  ): Promise<{ hasReview: boolean; summary: string; failedTests?: string[]; statusNote?: string; perTestStatus?: Record<string, string>; sectionSummary?: string }> {
     if (status !== 'failed' || !(message.thread_ts || (message.reply_count || 0) > 0)) {
       return { hasReview: false, summary: '' };
     }
@@ -23,20 +23,21 @@ export class ThreadAnalyzerService {
         failedTests: analysis.failedTests,
         statusNote: analysis.statusNote,
         perTestStatus: analysis.perTestStatus,
+        sectionSummary: analysis.sectionSummary,
       };
     } catch (error) {
       console.error('Failed to check test review:', error);
     }
 
-    return { hasReview: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {} };
+    return { hasReview: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {}, sectionSummary: '⏳ Awaiting review' };
   }
 
   private analyzeThreadContent(
     replies: SlackMessage[],
     originalMessage: SlackMessage
-  ): { hasActivity: boolean; summary: string; failedTests: string[]; statusNote: string; perTestStatus: Record<string, string> } {
+  ): { hasActivity: boolean; summary: string; failedTests: string[]; statusNote: string; perTestStatus: Record<string, string>; sectionSummary: string } {
     if (replies.length === 0) {
-      return { hasActivity: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {} };
+      return { hasActivity: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {}, sectionSummary: '⏳ Awaiting review' };
     }
 
     const collectText = (m: SlackMessage) => {
@@ -62,20 +63,43 @@ export class ThreadAnalyzerService {
     const normalizedFailed = Array.from(new Set(failedTests.map(normalizeTest)));
 
     const perTestStatus: Record<string, string> = {};
-    for (const t of normalizedFailed) {
-      const tEsc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const patt = new RegExp(`${tEsc}[^\n]{0,80}(passed|fixed|resolved|green|not blocking|revert|retry|rerun|investigat|still failing)`, 'i');
-      const m = (threadTexts.join('\n')).match(patt);
-      if (m) {
-        const kw = m[1].toLowerCase();
-        let note = '';
-        if (/(passed|fixed|resolved|green)/.test(kw)) note = '✅ resolved';
-        else if (/not\s+blocking/.test(kw)) note = '✅ not blocking';
-        else if (/revert/.test(kw)) note = '♻️ revert planned/applied';
-        else if (/(retry|rerun)/.test(kw)) note = '🔄 rerun in progress';
-        else if (/investigat/.test(kw)) note = '🔍 investigating';
-        else if (/still\s+failing/.test(kw)) note = '❌ still failing';
-        if (note) perTestStatus[t] = note;
+    
+    // Process messages chronologically - most recent status wins
+    const allMessages = [originalMessage, ...replies];
+    for (const message of allMessages) {
+      const messageText = collectText(message);
+      
+      for (const t of normalizedFailed) {
+        const testPattern = new RegExp(`${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.ts)?`, 'i');
+        
+        if (testPattern.test(messageText)) {
+          const context = messageText.toLowerCase();
+          let note = '';
+          
+          // Define status patterns with priorities (check most specific first)
+          const statusPatterns = [
+            { pattern: /passed\s+on\s+rerun/, status: '✅ resolved' },
+            { pattern: /(passed|passing|fixed|resolved|green)/, status: '✅ resolved' },
+            { pattern: /not\s+blocking/, status: '✅ not blocking' },
+            { pattern: /(explained|setup\s+issue|test\s+issue|just.*issue)/, status: '✅ explained' },
+            { pattern: /(fix.*review|should\s+be\s+fixed)/, status: '🔄 fix in progress' },
+            { pattern: /revert/, status: '♻️ revert planned/applied' },
+            { pattern: /(retry|rerun)/, status: '🔄 rerun in progress' },
+            { pattern: /(investigat|working on|looking into|i'll look|as we speak)/, status: '🔍 investigating' },
+            { pattern: /still\s+failing/, status: '❌ still failing' }
+          ];
+          
+          // Find first matching pattern
+          for (const { pattern, status } of statusPatterns) {
+            if (pattern.test(context)) {
+              note = status;
+              break;
+            }
+          }
+          
+          // Most recent status wins - overwrite any previous status for this test
+          if (note) perTestStatus[t] = note;
+        }
       }
     }
 
@@ -124,12 +148,16 @@ export class ThreadAnalyzerService {
       }
     }
 
+    // Calculate section-level status based on individual test statuses
+    const sectionSummary = this.calculateSectionStatus(perTestStatus);
+
     return {
       hasActivity: true,
       summary: summary.trim(),
       failedTests: normalizedFailed,
       statusNote: statusNote.trim(),
       perTestStatus,
+      sectionSummary,
     };
   }
 
@@ -145,5 +173,54 @@ export class ThreadAnalyzerService {
       return base.replace(/^2f+/i, '');
     });
     return Array.from(new Set(normalized));
+  }
+
+  private calculateSectionStatus(perTestStatus: Record<string, string>): string {
+    const statuses = Object.values(perTestStatus);
+    
+    if (statuses.length === 0) {
+      return '⏳ Awaiting review';
+    }
+    
+    // Count different status types
+    const resolvedCount = statuses.filter(s => 
+      s.toLowerCase().includes('resolved') || 
+      s.toLowerCase().includes('not blocking') ||
+      s.toLowerCase().includes('explained') ||
+      s.toLowerCase().includes('fix in progress') ||
+      s.toLowerCase().includes('✅')
+    ).length;
+    
+    const investigatingCount = statuses.filter(s => 
+      s.toLowerCase().includes('investigating') ||
+      s.toLowerCase().includes('🔍') ||
+      s.toLowerCase() === 'unclear'
+    ).length;
+    
+    const flakeyCount = statuses.filter(s => 
+      s.toLowerCase().includes('flakey') ||
+      s.toLowerCase().includes('flaky')
+    ).length;
+    
+    const blockerCount = statuses.filter(s => {
+      const statusLower = s.toLowerCase();
+      return (statusLower.includes('blocker') || statusLower.includes('blocking')) && 
+             !statusLower.includes('not blocking');
+    }).length;
+    
+    // Determine overall section status based on counts
+    if (blockerCount > 0) {
+      return `🚫 ${blockerCount} blocker${blockerCount > 1 ? 's' : ''} found`;
+    } else if (investigatingCount > 0) {
+      return `🔍 ${investigatingCount} test${investigatingCount > 1 ? 's' : ''} under investigation`;
+    } else if (flakeyCount > 0 && resolvedCount > 0) {
+      return `⚠️ ${flakeyCount} flakey, ${resolvedCount} resolved`;
+    } else if (flakeyCount > 0) {
+      return `⚠️ ${flakeyCount} flakey test${flakeyCount > 1 ? 's' : ''}`;
+    } else if (resolvedCount > 0) {
+      return `✅ ${resolvedCount} test${resolvedCount > 1 ? 's' : ''} resolved - not blocking`;
+    } else {
+      return '❓ Status unclear - review needed';
+    }
   }
 }

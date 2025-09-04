@@ -72,6 +72,7 @@ export interface TestResult {
   failedTests?: string[];      // Extracted from thread/content
   statusNote?: string;         // Resolution/status note without the failed-tests prefix
   perTestStatus?: Record<string, string>; // Map of normalized test name -> status note
+  sectionSummary?: string;     // Section-level status computed by thread analyzer
 }
 
 export interface Channel {

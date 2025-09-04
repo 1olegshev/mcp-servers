@@ -46,10 +46,11 @@ export class TestAnalyzerService {
 
     const fmtDate = (d: Date) => d.toISOString().split('T')[0];
     const addDays = (d: Date, delta: number) => new Date(d.getTime() + delta * 24 * 60 * 60 * 1000);
-    const beforeDateStr = fmtDate(startOfToday);
+    const beforeDateStr = fmtDate(addDays(startOfToday, 1)); // Tomorrow, so today is included in search ranges
+    const todayDateStr = fmtDate(new Date());
 
     // Build phase windows
-  const dayOfWeek = (date ? (date === 'today' ? new Date() : new Date(date)) : new Date()).getDay(); // 0 Sun, 1 Mon
+    const dayOfWeek = (date ? (date === 'today' ? new Date() : new Date(date)) : new Date()).getDay(); // 0 Sun, 1 Mon
     const phase1Dates: string[] = [];
     if (dayOfWeek === 1) {
       // Monday: try Sun -> Sat -> Fri
@@ -60,7 +61,9 @@ export class TestAnalyzerService {
       // Other days: yesterday only
       phase1Dates.push(fmtDate(addDays(startOfToday, -1)));
     }
-  const phase2After = fmtDate(addDays(startOfToday, -MAX_LOOKBACK_DAYS));
+    // Always include today as a search window for each suite
+    phase1Dates.unshift(todayDateStr);
+    const phase2After = fmtDate(addDays(startOfToday, -MAX_LOOKBACK_DAYS));
 
     // Suites mapping
     const suiteBots: Array<{ id: string; name: 'Cypress (general)' | 'Cypress (unverified)' | 'Playwright' }> = [
@@ -71,22 +74,24 @@ export class TestAnalyzerService {
 
     const found: Map<string, SlackMessage> = new Map();
 
-    // Helper: run a per-bot search within [after,before) date bounds and pick newest < startOfToday
+    // Helper: run a per-bot search within [after,before) date bounds and pick newest
     const findBySearch = async (suite: 'Cypress (general)' | 'Cypress (unverified)' | 'Playwright', after: string, before: string): Promise<SlackMessage | undefined> => {
       let query = '';
       if (suite === 'Playwright') {
         // Confirmed handle for Jenkins user
         query = `from:@jenkins2 after:${after} before:${before}`;
       } else {
-        // Use app name and then narrow by text anchors
-        query = `from:Cypress after:${after} before:${before}`;
+        // Force search to fail and use history fallback which works correctly
+        query = `"IMPOSSIBLE_SEARCH_TERM_TO_FORCE_FALLBACK" after:${after} before:${before}`;
       }
       const matches = await this.slackClient.searchMessages(query, channel);
       // matches already sorted desc per client
       for (const m of matches) {
         if (!m.ts) continue;
-        // Ensure it's before today
-        if (parseFloat(m.ts) * 1000 >= startOfToday.getTime()) continue;
+        // Allow today's messages when searching today, otherwise exclude messages >= startOfToday
+        const msgTime = parseFloat(m.ts) * 1000;
+        const isToday = after === todayDateStr;
+        if (!isToday && msgTime >= startOfToday.getTime()) continue;
         try {
           const full = await this.slackClient.getMessageDetails(channel, m.ts);
           const text = (extractAllMessageText(full).text || '').toLowerCase();
@@ -136,10 +141,10 @@ export class TestAnalyzerService {
     }
 
     // Final fallback: history scan in a bounded window
-    const historyFallbackNeeded = found.size < suiteBots.length && !messages;
+    const historyFallbackNeeded = found.size < suiteBots.length; // Always fallback if missing results
     if (historyFallbackNeeded) {
       const oldestTs = (new Date(phase2After + 'T00:00:00Z').getTime() / 1000).toString();
-      const latestTs = ((startOfToday.getTime() - 1) / 1000).toString();
+      const latestTs = ((addDays(startOfToday, 1).getTime() - 1) / 1000).toString(); // Include today by using end of today
       // Fetch smaller page and scan newest-first
       const history = await this.slackClient.getChannelHistoryForDateRange(channel, oldestTs, latestTs, 200);
       history.sort((a, b) => parseFloat(b.ts || '0') - parseFloat(a.ts || '0'));
@@ -264,6 +269,7 @@ export class TestAnalyzerService {
         failedTests: threadAnalysis.failedTests,
         statusNote: threadAnalysis.statusNote,
         perTestStatus: threadAnalysis.perTestStatus,
+        sectionSummary: threadAnalysis.sectionSummary,
       });
     }
 

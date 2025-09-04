@@ -34,22 +34,37 @@ export class TestReportFormatter {
               ? test.failedTests
               : this.parseFailedTestsFromSummary(test.reviewSummary)
           ).slice(0, 6);
+          
           for (const testName of failedTests) {
             let display = testName
               .replace(/\.(test|spec)\.[jt]sx?$/i, '')
               .replace(/\.[jt]sx?$/i, '')
               .replace(/[.,…\s]+$/g, '');
-            const note = test.perTestStatus && test.perTestStatus[display] ? ` — ${test.perTestStatus[display]}` : '';
+            
+            // Try to find status with flexible matching
+            let status = '';
+            if (test.perTestStatus) {
+              // First try exact match
+              if (test.perTestStatus[display]) {
+                status = test.perTestStatus[display];
+              } else {
+                // Try partial matching for flexible test name variations
+                const statusKeys = Object.keys(test.perTestStatus);
+                const matchingKey = statusKeys.find(key => 
+                  key.includes(display) || display.includes(key) ||
+                  key.replace(/_/g, '-') === display.replace(/_/g, '-')
+                );
+                if (matchingKey) {
+                  status = test.perTestStatus[matchingKey];
+                }
+              }
+            }
+            
+            const note = ` — ${status || 'unclear'}`;
             output += `  • *${display}*${note}\n`;
           }
-          const reviewStatus = (test.statusNote || '').trim();
-          if (reviewStatus) {
-            output += `  └─ ${reviewStatus}\n`;
-          } else if (test.hasReview) {
-            output += `  └─ Thread activity - status unclear\n`;
-          } else {
-            output += `  └─ ⏳ Awaiting review\n`;
-          }
+          // Use section summary from thread analyzer
+          output += `  └─ ${test.sectionSummary || '⏳ Awaiting review'}\n`;
         }
       } else {
         output += `• *${suite}*: ❓ No recent results\n`;
@@ -72,11 +87,36 @@ export class TestReportFormatter {
         const rerunSuccess = summary.includes('manual rerun successful') || /rerun successful|resolved|fixed/.test(summary);
         return notBlocking || rerunSuccess;
       };
+      
+            const hasUnderInvestigation = (t: TestResult): boolean => {
+        if (t.status !== 'failed' || !t.hasReview) return false;
+        const summary = (t.reviewSummary || '').toLowerCase();
+        const statusNote = (t.statusNote || '').toLowerCase();
+        // Check if any individual test is marked as investigating (with or without emoji)
+        const hasInvestigatingTests = t.perTestStatus ? Object.values(t.perTestStatus).some(status => {
+          const statusLower = status.toLowerCase();
+          // Be more explicit about what we're looking for
+          return statusLower.includes('investigating') || 
+                 statusLower.includes('🔍') ||
+                 statusLower === 'unclear';  // Treat unclear as investigation needed
+        }) : false;
+        return summary.includes('under investigation') || 
+               statusNote.includes('under investigation') ||
+               summary.includes('looking into') || 
+               statusNote.includes('looking into') ||
+               hasInvestigatingTests;
+      };
+      
       const allResolvedOrPassed = present.every(
         t => t.status === 'passed' || isResolvedFailure(t)
       );
+      
+      const someUnderInvestigation = present.some(hasUnderInvestigation);
+      
       if (allPassed && present.length >= 2) {
         output += `✅ *AUTO TEST STATUS: ALL PASSED*\n`;
+      } else if (someUnderInvestigation && present.length >= 1) {
+        output += `🔍 *AUTO TEST STATUS: UNDER INVESTIGATION*\n`;
       } else if (allResolvedOrPassed && present.length >= 2) {
         output += `✅ *AUTO TEST STATUS: RESOLVED - NOT BLOCKING*\n`;
       } else {
@@ -100,4 +140,5 @@ export class TestReportFormatter {
       });
     return byType;
   }
+
 }
