@@ -264,6 +264,9 @@ permalink.match(/[?&]thread_ts=([^&]+)/) → thread timestamp extraction
 // Implicit blocking detection in threads
 text.includes('prio: blocker' | 'priority: blocker' | 'label: ... blocker') → blocking detected
 
+// Explicit blocker list detection
+text.match(/blockers?.*:/i) && text.match(/\b([A-Z]+-\d+)\b/gi) → blocker tickets extracted
+
 // Test bot identification
 username.includes('cypress' | 'playwright' | 'test' | 'automation')
 

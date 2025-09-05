@@ -328,6 +328,7 @@ The system analyzes multiple factors to determine release readiness:
 - **Test Status**: Success/failure keywords and emoji patterns
 - **Thread Detection**: Extracts thread context from permalinks when API doesn't provide thread_ts
 - **Implicit Blocking Detection**: Recognizes "prio: blocker", "priority: blocker" in thread replies referencing parent ticket
+- **Explicit Blocker Lists**: Detects tickets in structured lists like "Blockers for Monday: • TICKET-123 • TICKET-456"
 - **Resolution Patterns**: Detects "resolved", "fixed", "ready", "deployed" keywords in threads
 
 ### 💬 **Channel Conventions**
