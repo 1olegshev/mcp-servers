@@ -229,6 +229,7 @@ const threadTs = issueDetector.extractThreadTsFromPermalink(message);
 const issues = await issueDetector.findIssues(channel, date, 'both');
 // Returns: blocking, critical, and blocking_resolved issues
 // Handles: implicit blocking, explicit blocker lists, thread analysis
+// Features: Smart deduplication preserving thread links over list-only entries
 ```
 
 ### 🔐 Authentication Checks
