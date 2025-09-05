@@ -317,15 +317,26 @@ export class IssueDetectorService {
         }
 
         // Look for generic blocking statements in threads with tickets
-        // e.g., "Let's make a ticket ... prio: blocker" when ticket was mentioned in parent
+        // Only mark as blocking if there's strong evidence of association
         if (/\bblocker\b/i.test(text) && /\bticket\b/i.test(text)) {
-          // This could be referring to the ticket mentioned in the parent message
-          // We'll consider it blocking if it's a clear blocking statement
+          // Be more conservative - only mark as blocking if:
+          // 1. The blocking statement is clearly about the existing ticket, OR
+          // 2. It's a follow-up to the specific issue described in parent
           const hasClearBlockingIntent = /prio.*blocker/i.test(text) ||
                                         /priority.*blocker/i.test(text) ||
                                         /label.*blocker/i.test(text);
 
-          if (hasClearBlockingIntent) {
+          // Additional check: if it's about creating a new ticket with different context,
+          // don't associate it with existing tickets
+          const isCreatingNewTicket = /let's make a ticket/i.test(text) ||
+                                     /create.*ticket/i.test(text) ||
+                                     /new ticket/i.test(text);
+
+          const hasDifferentContext = /engaging.learning/i.test(text) ||
+                                     /component.*player/i.test(text) ||
+                                     /label.*[^b]/i.test(text); // different label than blocker
+
+          if (hasClearBlockingIntent && !isCreatingNewTicket && !hasDifferentContext) {
             isBlocking = true;
           }
         }

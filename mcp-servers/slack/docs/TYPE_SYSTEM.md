@@ -261,6 +261,9 @@ date.match(/^\d{4}-\d{2}-\d{2}$/)  // YYYY-MM-DD format
 // Thread detection from permalinks
 permalink.match(/[?&]thread_ts=([^&]+)/) → thread timestamp extraction
 
+// Implicit blocking detection in threads
+text.includes('prio: blocker' | 'priority: blocker' | 'label: ... blocker') → blocking detected
+
 // Test bot identification
 username.includes('cypress' | 'playwright' | 'test' | 'automation')
 

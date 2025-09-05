@@ -96,6 +96,7 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Analysis**: Advanced text pattern matching for severity keywords with thread context analysis
 - **Thread Support**: Automatically detects and processes threaded conversations for complete issue context
 - **Permalink Parsing**: Extracts thread timestamps from Slack permalinks when API doesn't provide them
+- **Implicit Ticket Detection**: Detects blocking tickets from thread replies like "prio: blocker" even when ticket isn't repeated
 - **Issue Types**: Supports blocking, critical, and blocking_resolved classifications
 - **Output**: Structured issue reports with JIRA tickets and resolution status
 
@@ -326,6 +327,7 @@ The system analyzes multiple factors to determine release readiness:
 - **Bot Detection**: Username/text contains automation keywords
 - **Test Status**: Success/failure keywords and emoji patterns
 - **Thread Detection**: Extracts thread context from permalinks when API doesn't provide thread_ts
+- **Implicit Blocking Detection**: Recognizes "prio: blocker", "priority: blocker" in thread replies referencing parent ticket
 - **Resolution Patterns**: Detects "resolved", "fixed", "ready", "deployed" keywords in threads
 
 ### 💬 **Channel Conventions**

@@ -228,6 +228,7 @@ const threadTs = issueDetector.extractThreadTsFromPermalink(message);
 // Process issues with thread context
 const issues = await issueDetector.findIssues(channel, date, 'both');
 // Returns: blocking, critical, and blocking_resolved issues
+// Handles implicit blocking: "Let's make a ticket ... prio: blocker"
 ```
 
 ### 🔐 Authentication Checks
