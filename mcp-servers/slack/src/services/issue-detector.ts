@@ -144,23 +144,20 @@ export class IssueDetectorService {
       allIssues.push(...threadIssues);
     }
 
-    // Step 5: Final Deduplication by Ticket + Thread (prevent duplicate reports)
-    const ticketThreadKeyToIssue = new Map<string, Issue>();
+    // Step 5: Final Deduplication by Ticket (prevent duplicate reports)
+    const ticketToIssue = new Map<string, Issue>();
 
     for (const issue of allIssues) {
       for (const ticket of issue.tickets) {
-        // Create a unique key combining ticket and thread
-        const uniqueKey = `${ticket.key}_${issue.timestamp}`;
-
-        // Only keep the first issue we encounter for this ticket+thread combination
-        if (!ticketThreadKeyToIssue.has(uniqueKey)) {
-          ticketThreadKeyToIssue.set(uniqueKey, issue);
+        // Only keep the first issue we encounter for this ticket
+        if (!ticketToIssue.has(ticket.key)) {
+          ticketToIssue.set(ticket.key, issue);
         }
       }
     }
 
     // Prepare final deduped list
-    const dedupedIssues: Issue[] = Array.from(ticketThreadKeyToIssue.values());
+    const dedupedIssues: Issue[] = Array.from(ticketToIssue.values());
     return dedupedIssues;
   }
 
@@ -170,21 +167,7 @@ export class IssueDetectorService {
   // This method is now removed as its logic is integrated into analyzeMessage
   // private async analyzeThreadReplies(...) {}
 
-  private shouldIncludeIssue(
-    issueType: 'blocking' | 'critical' | 'blocking_resolved' | 'none', 
-    severity: string
-  ): boolean {
-    if (severity === 'both') {
-      return issueType !== 'none';
-    }
-    if (severity === 'blocking') {
-      return issueType === 'blocking' || issueType === 'blocking_resolved';
-    }
-    if (severity === 'critical') {
-      return issueType === 'critical';
-    }
-    return false;
-  }
+
 
   /**
    * Process explicit blocker list messages and create Issue objects directly
@@ -263,7 +246,7 @@ export class IssueDetectorService {
         channel
       );
 
-      if (blockingAnalysis.isBlocking && this.shouldIncludeIssue('blocking', 'both')) {
+      if (blockingAnalysis.isBlocking) {
         issues.push({
           type: 'blocking',
           text: this.extractTicketContextFromThread(threadMessages, ticketKey),
