@@ -149,9 +149,21 @@ export class IssueDetectorService {
 
     for (const issue of allIssues) {
       for (const ticket of issue.tickets) {
-        // Only keep the first issue we encounter for this ticket
-        if (!ticketToIssue.has(ticket.key)) {
+        // Prioritize issues with thread context over list-only issues
+        const existingIssue = ticketToIssue.get(ticket.key);
+        if (!existingIssue) {
+          // No existing issue for this ticket, add it
           ticketToIssue.set(ticket.key, issue);
+        } else {
+          // Existing issue found - prefer the one with thread context
+          const existingHasThread = existingIssue.hasThread || existingIssue.permalink;
+          const currentHasThread = issue.hasThread || issue.permalink;
+
+          if (currentHasThread && !existingHasThread) {
+            // Current issue has thread context, existing doesn't - replace it
+            ticketToIssue.set(ticket.key, issue);
+          }
+          // If both have thread context or neither does, keep the existing one
         }
       }
     }
