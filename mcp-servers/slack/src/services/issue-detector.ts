@@ -43,13 +43,6 @@ export class IssueDetectorService {
     severity: 'blocking' | 'critical' | 'both' = 'both'
   ): Promise<Issue[]> {
     // Step 1: Initial Sweep with `search` to find "seed" messages
-    const { oldest, latest } = DateUtils.getDateRange(date);
-    const after = new Date(parseFloat(oldest) * 1000);
-    const before = new Date(parseFloat(latest) * 1000);
-    const dayAfter = new Date(before.getTime() + 1);
-    const fmt = (d: Date) => d.toISOString().split('T')[0];
-    const dateQuery = date === 'today' || !date ? 'on:today' : `after:${fmt(after)} before:${fmt(dayAfter)}`;
-    
     // Use Slack's 'on' operator for reliable date filtering
     const dateFilter = date === 'today' || !date ? 'on:today' : `on:${date}`;
 
@@ -62,7 +55,6 @@ export class IssueDetectorService {
       `hotfix ${dateFilter}`,
       `"no go" ${dateFilter}`,
     ];
-
 
     let seedMessages: SlackMessage[] = [];
     try {
@@ -84,6 +76,9 @@ export class IssueDetectorService {
       console.error('An error occurred during the search phase:', e);
       return [];
     }
+
+    // Also check for explicit blocker lists that might contain tickets not in thread parents
+    const blockerListIssues = this.processExplicitBlockerLists(seedMessages, channel);
 
     // Step 1.5: Filter out seed messages containing any negative phrase
     const negativePhrases = [
@@ -110,10 +105,14 @@ export class IssueDetectorService {
       // Use helper to extract thread_ts from permalink if not in message object
       const extractedThreadTs = this.extractThreadTsFromPermalink(message);
       const threadId = extractedThreadTs || message.ts!;
+
       relevantThreadIds.add(threadId);
     }
 
     const allIssues: Issue[] = [];
+
+    // Add explicit blocker list issues
+    allIssues.push(...blockerListIssues);
 
     // Step 3: Fetch Full, Guaranteed Context and Analyze Each Thread
     for (const threadId of relevantThreadIds) {
@@ -185,6 +184,52 @@ export class IssueDetectorService {
       return issueType === 'critical';
     }
     return false;
+  }
+
+  /**
+   * Process explicit blocker list messages and create Issue objects directly
+   * These are tickets that appear in messages like "Blockers for Monday: • TICKET-123 • TICKET-456"
+   */
+  private processExplicitBlockerLists(seedMessages: SlackMessage[], channel: string): Issue[] {
+    const issues: Issue[] = [];
+
+    for (const message of seedMessages) {
+      const text = (message.text || '').toLowerCase();
+
+      // Look for explicit blocker lists
+      if (/\bblockers?\b.*:/i.test(text) || /blockers?\s*for/i.test(text)) {
+        // Extract ticket numbers from the message
+        const ticketMatches = text.match(/\b([A-Z]+-\d+)\b/gi); // Case insensitive
+
+        if (ticketMatches && ticketMatches.length > 0) {
+          // Use a Set to deduplicate tickets
+          const uniqueTickets = [...new Set(ticketMatches.map(t => t.toUpperCase()))];
+
+          for (const ticketKey of uniqueTickets) {
+
+            // Create the ticket info
+            const ticketInfo: JiraTicketInfo = {
+              key: ticketKey,
+              url: `https://mobitroll.atlassian.net/browse/${ticketKey}`,
+              project: ticketKey.split('-')[0]
+            };
+
+            // Create the issue directly
+            const issue: Issue = {
+              type: 'blocking',
+              text: `Listed as blocker in: ${message.text?.substring(0, 100)}...`,
+              tickets: [ticketInfo],
+              timestamp: message.ts!,
+              hasThread: false
+            };
+
+            issues.push(issue);
+          }
+        }
+      }
+    }
+
+    return issues;
   }
 
   /**
