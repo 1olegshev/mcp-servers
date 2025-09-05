@@ -217,6 +217,19 @@ const isBot = TextAnalyzer.isTestBot(message);
 const { isBlocking, isCritical } = TextAnalyzer.analyzeIssueSeverity(message.text);
 ```
 
+### 🧵 Thread Detection & Permalink Parsing
+```typescript
+import { IssueDetectorService } from '../services/issue-detector.js';
+
+// Extract thread_ts from permalink when API doesn't provide it
+const issueDetector = new IssueDetectorService(slackClient);
+const threadTs = issueDetector.extractThreadTsFromPermalink(message);
+
+// Process issues with thread context
+const issues = await issueDetector.findIssues(channel, date, 'both');
+// Returns: blocking, critical, and blocking_resolved issues
+```
+
 ### 🔐 Authentication Checks
 ```typescript
 import { SlackAuth } from '../auth/slack-auth.js';

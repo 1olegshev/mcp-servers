@@ -55,11 +55,23 @@ interface FormattedMessage {
 ### 🔍 Analysis Result Types
 ```typescript
 interface Issue {
-  type: 'blocking' | 'critical';  // Issue severity level
+  type: 'blocking' | 'critical' | 'blocking_resolved';  // Issue severity level
   text: string;                   // Issue description (truncated)
-  tickets: string[];              // Extracted JIRA ticket numbers
+  tickets: JiraTicketInfo[];      // Extracted JIRA ticket info with URLs
   timestamp: string;              // When issue was reported
   hasThread: boolean;             // Whether issue has thread discussion
+  resolutionText?: string;        // Resolution details for resolved blockers
+  permalink?: string;             // Direct link to Slack message/thread
+}
+
+interface JiraTicketInfo {
+  key: string;                    // e.g., "PROJ-123"
+  url?: string;                   // Full URL to ticket in Jira
+  project?: string;               // Project key (e.g., "PROJ")
+  labels?: string[];              // Issue labels
+  components?: string[];          // Issue components
+  status?: string;                // Current status
+  priority?: string;              // Priority level
 }
 
 interface TestResult {
@@ -244,12 +256,19 @@ date.match(/^\d{4}-\d{2}-\d{2}$/)  // YYYY-MM-DD format
 // Issue severity mapping
 'blocker' | 'blocking' | 'release blocker' → type: 'blocking'
 'critical' | 'urgent' | 'high priority' → type: 'critical'
+'resolved' | 'fixed' | 'ready' | 'deployed' → type: 'blocking_resolved'
+
+// Thread detection from permalinks
+permalink.match(/[?&]thread_ts=([^&]+)/) → thread timestamp extraction
 
 // Test bot identification
 username.includes('cypress' | 'playwright' | 'test' | 'automation')
 
 // Review status determination
 replies.includes('reviewed' | 'not blocking' | 'approved') → hasReview: true
+
+// Resolution pattern detection
+text.includes('resolved' | 'fixed' | 'ready' | 'deployed') → resolution detected
 ```
 
 ## 🧪 Testing Type Patterns

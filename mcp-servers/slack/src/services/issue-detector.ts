@@ -6,7 +6,7 @@
 import { SlackClient } from '../clients/slack-client.js';
 import { TextAnalyzer } from '../utils/analyzers.js';
 import { DateUtils } from '../utils/date-utils.js';
-import { Issue, SlackMessage } from '../types/index.js';
+import { Issue, SlackMessage, JiraTicketInfo } from '../types/index.js';
 
 export class IssueDetectorService {
   private jiraBaseUrl: string;
@@ -50,14 +50,17 @@ export class IssueDetectorService {
     const fmt = (d: Date) => d.toISOString().split('T')[0];
     const dateQuery = date === 'today' || !date ? 'on:today' : `after:${fmt(after)} before:${fmt(dayAfter)}`;
     
+    // Use Slack's 'on' operator for reliable date filtering
+    const dateFilter = date === 'today' || !date ? 'on:today' : `on:${date}`;
+
     const searches = [
-      `"release blocker" ${dateQuery}`,
-      `blocker ${dateQuery}`,
-      `blocking ${dateQuery}`,
-      `critical ${dateQuery}`,
-      `urgent ${dateQuery}`,
-      `hotfix ${dateQuery}`,
-      `"no go" ${dateQuery}`,
+      `"release blocker" ${dateFilter}`,
+      `blocker ${dateFilter}`,
+      `blocking ${dateFilter}`,
+      `critical ${dateFilter}`,
+      `urgent ${dateFilter}`,
+      `hotfix ${dateFilter}`,
+      `"no go" ${dateFilter}`,
     ];
 
 
@@ -131,52 +134,34 @@ export class IssueDetectorService {
         continue; // Skip this thread if we can't get its full context
       }
 
-      // Step 4: Apply Analysis Logic to the Full Thread Context
-      // We pass the parent message to analysis, which can then correctly re-fetch the thread if needed.
-      const issueAnalysis = await this.analyzeIssueWithContext(parentMessage, channel, parentMessage.text || '');
+      // Step 4: Apply Granular Ticket-Level Analysis to Thread
+      const threadIssues = await this.analyzeThreadForTicketSpecificBlocking(
+        fullThreadMessages,
+        channel,
+        parentMessage.ts!
+      );
 
-      if (issueAnalysis.type === 'none' || !this.shouldIncludeIssue(issueAnalysis.type, severity)) {
-        continue;
-      }
-
-      // To extract tickets, we need the text of all messages in the thread.
-      const fullThreadText = fullThreadMessages.map(m => m.text || '').filter(Boolean).join(' ');
-      const tickets = TextAnalyzer.extractTickets(fullThreadText, this.jiraBaseUrl);
-      const dedupedTickets = Array.from(new Map(tickets.map(t => [t.key, t])).values());
-      const permalink = await this.slackClient.getPermalink(channel, parentMessage.ts!);
-
-      allIssues.push({
-        type: issueAnalysis.type,
-        text: (parentMessage.text || '').substring(0, 200) + ((parentMessage.text || '').length > 200 ? '...' : ''),
-        tickets: dedupedTickets,
-        timestamp: parentMessage.ts!,
-        hasThread: fullThreadMessages.length > 1,
-        resolutionText: issueAnalysis.resolutionText,
-        permalink,
-      });
+      // Add all identified issues from this thread
+      allIssues.push(...threadIssues);
     }
 
-    // Step 5: Final Deduplication by Ticket (first mention per ticket/thread)
-    const ticketToIssue = new Map<string, Issue>();
-    const threadToTicket = new Map<string, Set<string>>();
+    // Step 5: Final Deduplication by Ticket + Thread (prevent duplicate reports)
+    const ticketThreadKeyToIssue = new Map<string, Issue>();
 
     for (const issue of allIssues) {
-      // For each ticket in this issue, if not already mapped, map to this issue (first mention wins)
       for (const ticket of issue.tickets) {
-        if (!ticketToIssue.has(ticket.key)) {
-          ticketToIssue.set(ticket.key, issue);
+        // Create a unique key combining ticket and thread
+        const uniqueKey = `${ticket.key}_${issue.timestamp}`;
+
+        // Only keep the first issue we encounter for this ticket+thread combination
+        if (!ticketThreadKeyToIssue.has(uniqueKey)) {
+          ticketThreadKeyToIssue.set(uniqueKey, issue);
         }
-        // Track which tickets are mentioned in which threads
-        const threadId = issue.timestamp;
-        if (!threadToTicket.has(threadId)) {
-          threadToTicket.set(threadId, new Set());
-        }
-        threadToTicket.get(threadId)!.add(ticket.key);
       }
     }
 
-    // Prepare final deduped list: one issue per unique ticket, with thread link from first mention
-    const dedupedIssues: Issue[] = Array.from(ticketToIssue.values());
+    // Prepare final deduped list
+    const dedupedIssues: Issue[] = Array.from(ticketThreadKeyToIssue.values());
     return dedupedIssues;
   }
 
@@ -200,6 +185,156 @@ export class IssueDetectorService {
       return issueType === 'critical';
     }
     return false;
+  }
+
+  /**
+   * Analyze thread for ticket-specific blocking status
+   * Creates separate issue entries for each ticket identified as blocking
+   */
+  private async analyzeThreadForTicketSpecificBlocking(
+    threadMessages: SlackMessage[],
+    channel: string,
+    parentTimestamp: string
+  ): Promise<Issue[]> {
+    const issues: Issue[] = [];
+    const permalink = await this.slackClient.getPermalink(channel, parentTimestamp);
+
+    // Collect all tickets mentioned in the thread
+    const allThreadTickets = new Map<string, JiraTicketInfo>();
+    for (const message of threadMessages) {
+      const tickets = TextAnalyzer.extractTickets(message.text || '', this.jiraBaseUrl);
+      for (const ticket of tickets) {
+        if (!allThreadTickets.has(ticket.key)) {
+          allThreadTickets.set(ticket.key, ticket);
+        }
+      }
+    }
+
+    // Analyze each ticket individually for blocking status
+    for (const [ticketKey, ticketInfo] of allThreadTickets) {
+      const blockingAnalysis = await this.analyzeTicketBlockingStatusInThread(
+        threadMessages,
+        ticketKey,
+        channel
+      );
+
+      if (blockingAnalysis.isBlocking && this.shouldIncludeIssue('blocking', 'both')) {
+        issues.push({
+          type: 'blocking',
+          text: this.extractTicketContextFromThread(threadMessages, ticketKey),
+          tickets: [ticketInfo],
+          timestamp: parentTimestamp,
+          hasThread: threadMessages.length > 1,
+          permalink,
+        });
+      }
+    }
+
+    return issues;
+  }
+
+  /**
+   * Analyze if a specific ticket is mentioned as blocking within a thread
+   */
+  private async analyzeTicketBlockingStatusInThread(
+    threadMessages: SlackMessage[],
+    ticketKey: string,
+    channel: string
+  ): Promise<{ isBlocking: boolean; isResolved: boolean }> {
+    let isBlocking = false;
+    let isResolved = false;
+
+    // First pass: check for explicit ticket-specific blocking/resolution mentions
+    for (const message of threadMessages) {
+      const text = (message.text || '').toLowerCase();
+
+      // Check if this message mentions the specific ticket
+      const mentionsTicket = text.includes(ticketKey.toLowerCase());
+      const mentionsBlockers = /\bblockers?\b/i.test(text) || /\bblocking\b/i.test(text);
+
+      // If message mentions blockers but not this specific ticket, it might be referring to others
+      if (mentionsBlockers && !mentionsTicket) {
+        // Look for patterns like "blockers are just 65023, 65025" or "65023 and 65025 are blockers"
+        const ticketNumbers = text.match(/\b\d{5}\b/g) || [];
+        if (ticketNumbers.some(num => ticketKey.includes(num))) {
+          isBlocking = true;
+        }
+      }
+
+      // If message mentions this ticket specifically
+      if (mentionsTicket) {
+        // Check for blocking indicators
+        const blockingPatterns = [
+          /\bblocker\b/i,
+          /\bblocking\b/i,
+          /release\s*blocker/i,
+          /\bblocks?\b/i,
+          /no.?go/i,
+          /@test.managers/i,
+          /hotfix/i
+        ];
+
+        const hasBlockingKeyword = blockingPatterns.some(pattern => pattern.test(text));
+
+        // Check for resolution keywords
+        const resolutionPatterns = [
+          /\bresolved\b/i,
+          /\bfixed\b/i,
+          /\bready\b/i,
+          /\bdeployed\b/i,
+          /not.*blocking/i,
+          /no.*longer.*blocking/i,
+          /\bnot a blocker\b/i
+        ];
+
+        const hasResolutionKeyword = resolutionPatterns.some(pattern => pattern.test(text));
+
+        if (hasBlockingKeyword) {
+          isBlocking = true;
+        }
+        if (hasResolutionKeyword) {
+          isResolved = true;
+          isBlocking = false;
+        }
+      }
+    }
+
+    // Second pass: if no explicit mentions found, check for general blocking statements
+    // that might refer to tickets mentioned in the parent message
+    if (!isBlocking && !isResolved) {
+      for (const message of threadMessages) {
+        const text = (message.text || '').toLowerCase();
+
+        // Look for statements like "these are blockers" or "blockers are just X, Y"
+        if (/\bblockers?\b/i.test(text) && /\bjust\b/i.test(text)) {
+          // Extract ticket numbers from the message
+          const ticketNumbers = text.match(/\b\d{5}\b/g) || [];
+          const ticketKeys = ticketNumbers.map(num => `KAHOOT-${num}`);
+
+          if (ticketKeys.includes(ticketKey)) {
+            isBlocking = true;
+          }
+        }
+      }
+    }
+
+    return { isBlocking, isResolved };
+  }
+
+  /**
+   * Extract relevant context for a specific ticket from thread messages
+   */
+  private extractTicketContextFromThread(threadMessages: SlackMessage[], ticketKey: string): string {
+    // Find the most relevant message mentioning this ticket
+    for (const message of threadMessages) {
+      const text = message.text || '';
+      if (text.includes(ticketKey)) {
+        return text.substring(0, 200) + (text.length > 200 ? '...' : '');
+      }
+    }
+
+    // Fallback to parent message
+    return (threadMessages[0]?.text || '').substring(0, 200) + ((threadMessages[0]?.text || '').length > 200 ? '...' : '');
   }
 
   /**

@@ -91,10 +91,13 @@ if (legacyBot) return new WebClient(legacyBot);
 ### 🏢 **Services Layer** (Business Logic)
 
 #### 🔍 **issue-detector.ts**
-- **Purpose**: Find blocking and critical issues in channels
-- **Key Methods**: `findIssues()`, `formatIssuesReport()`
-- **Analysis**: Text pattern matching for severity keywords
-- **Output**: Structured issue reports with JIRA tickets
+- **Purpose**: Find blocking and critical issues in channels with advanced thread support
+- **Key Methods**: `findIssues()`, `formatIssuesReport()`, `extractThreadTsFromPermalink()`
+- **Analysis**: Advanced text pattern matching for severity keywords with thread context analysis
+- **Thread Support**: Automatically detects and processes threaded conversations for complete issue context
+- **Permalink Parsing**: Extracts thread timestamps from Slack permalinks when API doesn't provide them
+- **Issue Types**: Supports blocking, critical, and blocking_resolved classifications
+- **Output**: Structured issue reports with JIRA tickets and resolution status
 
 #### 🧪 **test-analyzer.ts**  
 - **Purpose**: Analyze automated test results and coordinate analysis pipeline
@@ -313,14 +316,17 @@ async newTool(args: ToolArgs) {
 The system analyzes multiple factors to determine release readiness:
 
 1. **Blocking Issues**: Any issue with "blocker", "blocking", "release blocker" keywords
-2. **Critical Issues**: Issues with "critical", "urgent", "high priority" keywords  
-3. **Auto Tests**: Cypress (Unverified/General) and Playwright test results
-4. **Review Status**: Whether failed tests have been manually reviewed
+2. **Critical Issues**: Issues with "critical", "urgent", "high priority" keywords
+3. **Resolved Blockers**: Previously blocking issues that have been marked as resolved
+4. **Auto Tests**: Cypress (Unverified/General) and Playwright test results
+5. **Review Status**: Whether failed tests have been manually reviewed
 
 ### 🔍 **Issue Detection Patterns**
 - **JIRA Tickets**: Pattern `/[A-Z]+-\d+/g`
 - **Bot Detection**: Username/text contains automation keywords
 - **Test Status**: Success/failure keywords and emoji patterns
+- **Thread Detection**: Extracts thread context from permalinks when API doesn't provide thread_ts
+- **Resolution Patterns**: Detects "resolved", "fixed", "ready", "deployed" keywords in threads
 
 ### 💬 **Channel Conventions**
 - **Analysis Source**: `functional-testing` (default)

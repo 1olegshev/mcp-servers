@@ -17,21 +17,23 @@ export class DateUtils {
    */
   static getDateRange(dateStr?: string): { oldest: string; latest: string } {
     let targetDate: Date;
-    
+
     if (!dateStr || dateStr === 'today') {
       targetDate = new Date();
     } else {
-      targetDate = new Date(dateStr);
+      // Parse date string and ensure it's treated as UTC to avoid timezone issues
+      const [year, month, day] = dateStr.split('-').map(Number);
+      targetDate = new Date(Date.UTC(year, month - 1, day)); // month is 0-indexed
       // Check if the date is invalid
       if (isNaN(targetDate.getTime())) {
         throw new Error(`Invalid date format: ${dateStr}. Use YYYY-MM-DD format or 'today'.`);
       }
     }
-    
+
     const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
+    startOfDay.setUTCHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     return {
       oldest: (startOfDay.getTime() / 1000).toString(),
