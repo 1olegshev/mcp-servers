@@ -189,42 +189,61 @@ export class IssueDetectorService {
     const issues: Issue[] = [];
 
     for (const message of seedMessages) {
-      const text = (message.text || '').toLowerCase();
+      const text = message.text || '';
 
       // Look for explicit blocker lists
       if (/\bblockers?\b.*:/i.test(text) || /blockers?\s*for/i.test(text)) {
-        // Extract ticket numbers from the message
-        const ticketMatches = text.match(/\b([A-Z]+-\d+)\b/gi); // Case insensitive
+        // Extract ticket-thread link pairs from the message
+        const ticketThreadPairs = this.extractTicketThreadPairs(text);
 
-        if (ticketMatches && ticketMatches.length > 0) {
-          // Use a Set to deduplicate tickets
-          const uniqueTickets = [...new Set(ticketMatches.map(t => t.toUpperCase()))];
+        for (const { ticketKey, threadLink } of ticketThreadPairs) {
+          const ticketInfo: JiraTicketInfo = {
+            key: ticketKey,
+            url: `https://mobitroll.atlassian.net/browse/${ticketKey}`,
+            project: ticketKey.split('-')[0]
+          };
 
-          for (const ticketKey of uniqueTickets) {
+          // Create issue with thread context if available
+          const issue: Issue = {
+            type: 'blocking',
+            text: `Listed as blocker in: ${text.substring(0, 100)}...`,
+            tickets: [ticketInfo],
+            timestamp: message.ts!,
+            hasThread: !!threadLink,
+            permalink: threadLink
+          };
 
-            // Create the ticket info
-            const ticketInfo: JiraTicketInfo = {
-              key: ticketKey,
-              url: `https://mobitroll.atlassian.net/browse/${ticketKey}`,
-              project: ticketKey.split('-')[0]
-            };
-
-            // Create the issue directly
-            const issue: Issue = {
-              type: 'blocking',
-              text: `Listed as blocker in: ${message.text?.substring(0, 100)}...`,
-              tickets: [ticketInfo],
-              timestamp: message.ts!,
-              hasThread: false
-            };
-
-            issues.push(issue);
-          }
+          issues.push(issue);
         }
       }
     }
 
     return issues;
+  }
+
+  /**
+   * Extract ticket-thread link pairs from blocker list messages
+   */
+  private extractTicketThreadPairs(text: string): Array<{ticketKey: string, threadLink?: string}> {
+    const pairs: Array<{ticketKey: string, threadLink?: string}> = [];
+
+    // Split by bullet points to get individual blocker entries
+    const lines = text.split('•').slice(1); // Skip first part before first bullet
+
+    for (const line of lines) {
+      const ticketMatch = line.match(/\b([A-Z]+-\d+)\b/);
+      if (ticketMatch) {
+        const ticketKey = ticketMatch[1];
+
+        // Look for "mentioned here" link in the same line
+        const linkMatch = line.match(/◦\s*Mentioned\s*<([^|>]+)/);
+        const threadLink = linkMatch ? linkMatch[1] : undefined;
+
+        pairs.push({ ticketKey, threadLink });
+      }
+    }
+
+    return pairs;
   }
 
   /**
