@@ -315,6 +315,20 @@ export class IssueDetectorService {
             isBlocking = true;
           }
         }
+
+        // Look for generic blocking statements in threads with tickets
+        // e.g., "Let's make a ticket ... prio: blocker" when ticket was mentioned in parent
+        if (/\bblocker\b/i.test(text) && /\bticket\b/i.test(text)) {
+          // This could be referring to the ticket mentioned in the parent message
+          // We'll consider it blocking if it's a clear blocking statement
+          const hasClearBlockingIntent = /prio.*blocker/i.test(text) ||
+                                        /priority.*blocker/i.test(text) ||
+                                        /label.*blocker/i.test(text);
+
+          if (hasClearBlockingIntent) {
+            isBlocking = true;
+          }
+        }
       }
     }
 
