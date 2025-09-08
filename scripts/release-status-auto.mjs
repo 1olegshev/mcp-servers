@@ -10,8 +10,26 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Load environment variables from .env file
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const envPath = path.resolve(__dirname, '../.env');
+
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  const envLines = envContent.split('\n');
+
+  for (const line of envLines) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const [key, ...valueParts] = trimmed.split('=');
+      if (key && valueParts.length > 0) {
+        const value = valueParts.join('=').replace(/^["']|["']$/g, ''); // Remove quotes
+        process.env[key.trim()] = value.trim();
+      }
+    }
+  }
+}
 
 // Load MCP configuration
 const mcpConfigPath = path.resolve(__dirname, '../.vscode/mcp.json');
@@ -39,13 +57,24 @@ async function callMCPServer(serverName, toolName, args = {}) {
     throw new Error(`Server ${serverName} not found in mcp.json`);
   }
 
+  // Resolve environment variables in serverConfig.env
+  const resolvedEnv = {};
+  for (const [key, value] of Object.entries(serverConfig.env || {})) {
+    if (typeof value === 'string' && value.startsWith('${') && value.endsWith('}')) {
+      const envVar = value.slice(2, -1); // Remove ${ and }
+      resolvedEnv[key] = process.env[envVar] || '';
+    } else {
+      resolvedEnv[key] = value;
+    }
+  }
+
   // Use absolute path to node for cron compatibility
   const nodePath = '/Users/olegshevchenko/.nvm/versions/node/v22.9.0/bin/node';
 
   return new Promise((resolve, reject) => {
     const childProcess = spawn(nodePath, serverConfig.args, {
       cwd: serverConfig.cwd,
-      env: { ...process.env, ...serverConfig.env },
+      env: { ...process.env, ...resolvedEnv },
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
