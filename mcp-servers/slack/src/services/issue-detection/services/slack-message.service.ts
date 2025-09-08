@@ -31,26 +31,28 @@ export class SlackMessageService implements ISlackMessageService {
 
     let seedMessages: SlackMessage[] = [];
 
-    try {
-      const searchPromises = searches.map(query =>
-        this.slackClient.searchMessages(query, channel)
-      );
-      const results = await Promise.allSettled(searchPromises);
-      const seenTs = new Set<string>();
+    const searchPromises = searches.map(query =>
+      this.slackClient.searchMessages(query, channel)
+    );
+    const results = await Promise.allSettled(searchPromises);
+    const seenTs = new Set<string>();
 
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          for (const message of result.value) {
-            if (message.ts && !seenTs.has(message.ts)) {
-              seenTs.add(message.ts);
-              seedMessages.push(message as SlackMessage);
-            }
+    let fulfilledCount = 0;
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        fulfilledCount++;
+        for (const message of result.value) {
+          if (message.ts && !seenTs.has(message.ts)) {
+            seenTs.add(message.ts);
+            seedMessages.push(message as SlackMessage);
           }
         }
       }
-    } catch (e) {
-      console.error('An error occurred during the search phase:', e);
-      return [];
+    }
+
+    // If all searches failed, throw an error
+    if (fulfilledCount === 0 && results.length > 0) {
+      throw new Error('All Slack API searches failed');
     }
 
     // Filter out messages containing negative phrases

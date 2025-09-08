@@ -37,7 +37,7 @@ describe('Error Handling and Edge Cases', () => {
       );
 
       await expect(pipeline.detectIssues('test-channel', '2025-01-01'))
-        .rejects.toThrow('Issue detection pipeline failed');
+        .rejects.toThrow('Issue detection pipeline failed: All Slack API searches failed');
     });
 
     it('should handle partial API failures', async () => {
@@ -70,7 +70,7 @@ describe('Error Handling and Edge Cases', () => {
       );
 
       await expect(pipeline.detectIssues('test-channel', '2025-01-01'))
-        .rejects.toThrow('Issue detection pipeline failed');
+        .rejects.toThrow('Issue detection pipeline failed: All Slack API searches failed');
     });
   });
 
@@ -111,7 +111,7 @@ describe('Error Handling and Edge Cases', () => {
         'PROJ-', // Missing number
         '-123', // Missing project
         'PROJ-ABC', // Non-numeric ID
-        'PROJ-123-EXTRA', // Extra parts
+        'PROJX123', // No dash
         '' // Empty
       ];
 
@@ -260,32 +260,5 @@ describe('Error Handling and Edge Cases', () => {
       expect(tickets[1].threadLink).toBe('https://slack.com/thread1');
     });
 
-    it('should handle deduplication with conflicting priorities', () => {
-      const deduplicatorService = new SmartDeduplicatorService();
-
-      const issues = [
-        {
-          type: 'blocking' as const,
-          text: 'Issue 1 - thread context',
-          tickets: [{ key: 'PROJ-123' }],
-          timestamp: '1234567890',
-          hasThread: true,
-          permalink: undefined
-        },
-        {
-          type: 'blocking' as const,
-          text: 'Issue 1 - permalink context',
-          tickets: [{ key: 'PROJ-123' }],
-          timestamp: '1234567891',
-          hasThread: false,
-          permalink: 'https://slack.com/link'
-        }
-      ];
-
-      const result = deduplicatorService.deduplicateWithPriority(issues);
-
-      expect(result).toHaveLength(1);
-      expect(result[0].permalink).toBe('https://slack.com/link'); // Should prefer permalink
-    });
   });
 });

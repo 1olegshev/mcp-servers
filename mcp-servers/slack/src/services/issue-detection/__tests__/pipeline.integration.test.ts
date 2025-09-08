@@ -55,7 +55,7 @@ describe('IssueDetectionPipeline', () => {
     it('should handle Slack API errors gracefully', async () => {
       mockSlackClient.searchMessages.mockRejectedValue(new Error('API Error'));
 
-      await expect(pipeline.detectIssues('test-channel', '2025-01-01')).rejects.toThrow('Issue detection pipeline failed');
+      await expect(pipeline.detectIssues('test-channel', '2025-01-01')).rejects.toThrow('Issue detection pipeline failed: All Slack API searches failed');
     });
 
     it('should process blocking issues through the pipeline', async () => {

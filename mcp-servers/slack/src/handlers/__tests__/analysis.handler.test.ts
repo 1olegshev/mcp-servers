@@ -178,9 +178,9 @@ describe('AnalysisHandler', () => {
 
   describe('input validation', () => {
     it('should require date parameter for all analysis tools', async () => {
-      await expect(handler.getBlockingIssues({})).rejects.toThrow('Missing required parameter: date');
-      await expect(handler.getAutoTestStatus({})).rejects.toThrow('Missing required parameter: date');
-      await expect(handler.getReleaseStatusOverview({})).rejects.toThrow('Missing required parameter: date');
+      await expect(handler.getBlockingIssues({})).rejects.toThrow('date is required');
+      await expect(handler.getAutoTestStatus({})).rejects.toThrow('date is required');
+      await expect(handler.getReleaseStatusOverview({})).rejects.toThrow('date is required');
     });
 
     it('should validate date format', async () => {

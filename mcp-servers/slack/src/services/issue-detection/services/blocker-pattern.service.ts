@@ -127,7 +127,7 @@ export class BlockerPatternService implements IPatternMatcher {
         const ticketKey = ticketMatch[1];
 
         // Look for "mentioned here" link in the same line
-        const linkMatch = line.match(/◦\s*Mentioned\s*<([^|>]+)/);
+        const linkMatch = line.match(/◦\s*Mentioned\s+(?:here)?(?:\s*:?\s*)?<([^|>]+)/);
         const threadLink = linkMatch ? linkMatch[1] : undefined;
 
         pairs.push({ ticketKey, threadLink });
