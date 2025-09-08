@@ -83,7 +83,7 @@ if (analysis.found) {
 
 ### 🏢 Adding a New Service
 
-**1. Service File** (`services/my-service.ts`)
+#### **Option 1: Traditional Service** (`services/my-service.ts`)
 ```typescript
 import { SlackClient } from '../clients/slack-client.js';
 
@@ -98,13 +98,34 @@ export class MyService {
 }
 ```
 
-**2. Integrate in Server** (`server.ts`)
+#### **Option 2: Modular Pipeline Service** (`services/issue-detection/services/my-pipeline-service.ts`)
 ```typescript
-// In initializeServices()
-const myService = new MyService(slackClient);
+import { IMyService } from '../models/service-interfaces.js';
 
-// Pass to handlers that need it
-this.myHandler = new MyHandler(slackClient, myService);
+export class MyPipelineService implements IMyService {
+  constructor() {} // No dependencies for pure logic services
+
+  async processData(data: MyData): Promise<MyResult> {
+    // Pure business logic, easily testable
+    return this.transformData(data);
+  }
+
+  private transformData(data: MyData): MyResult {
+    // Implementation
+  }
+}
+```
+
+**Integration:**
+```typescript
+// In issue-detection.pipeline.ts
+constructor(
+  private messageService: ISlackMessageService,
+  private patternMatcher: IPatternMatcher,
+  private contextAnalyzer: IContextAnalyzer,
+  private deduplicator: IDeduplicator,
+  private myService: IMyService // Add your service
+) {}
 ```
 
 ### 📋 Adding Test Result Formatting
@@ -217,19 +238,23 @@ const isBot = TextAnalyzer.isTestBot(message);
 const { isBlocking, isCritical } = TextAnalyzer.analyzeIssueSeverity(message.text);
 ```
 
-### 🧵 Thread Detection & Permalink Parsing
+### 🧵 Thread Detection & Issue Analysis
 ```typescript
 import { IssueDetectorService } from '../services/issue-detector.js';
 
-// Extract thread_ts from permalink when API doesn't provide it
+// Use the modular pipeline architecture (backward compatible)
 const issueDetector = new IssueDetectorService(slackClient);
-const threadTs = issueDetector.extractThreadTsFromPermalink(message);
 
-// Process issues with thread context
+// Analyze issues with advanced thread support
 const issues = await issueDetector.findIssues(channel, date, 'both');
 // Returns: blocking, critical, and blocking_resolved issues
-// Handles: implicit blocking, explicit blocker lists, thread analysis
-// Features: Smart deduplication preserving thread links over list-only entries
+// Pipeline: Messages → Parse → Analyze → Deduplicate → Results
+// Features: Smart deduplication, implicit blocking detection, thread analysis
+
+// Pipeline components (for advanced usage):
+import { SlackMessageService } from '../services/issue-detection/services/slack-message.service.js';
+import { BlockerPatternService } from '../services/issue-detection/services/blocker-pattern.service.js';
+import { ContextAnalyzerService } from '../services/issue-detection/services/context-analyzer.service.js';
 ```
 
 ### 🔐 Authentication Checks

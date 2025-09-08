@@ -19,7 +19,22 @@ src/
 ├── clients/
 │   └── slack-client.ts      # 🌐 Slack API wrapper
 ├── services/                # 🏢 Business logic layer
-│   ├── issue-detector.ts    # 🔍 Find blocking/critical issues
+│   ├── issue-detector.ts    # 🔍 Main service (pipeline orchestrator)
+│   ├── issue-detection/     # 🏗️ Modular issue detection pipeline
+│   │   ├── pipeline/
+│   │   │   ├── issue-detection.pipeline.ts    # 📊 Pipeline orchestrator
+│   │   │   └── pipeline-step.interface.ts      # 🎯 Pipeline contracts
+│   │   ├── services/
+│   │   │   ├── slack-message.service.ts       # 🌐 Slack API communication
+│   │   │   ├── blocker-pattern.service.ts     # 🕵️ Text pattern matching
+│   │   │   ├── context-analyzer.service.ts    # 🧵 Thread analysis & context
+│   │   │   └── smart-deduplicator.service.ts  # 🔄 Duplicate detection
+│   │   ├── models/
+│   │   │   ├── service-interfaces.ts          # 📋 Service contracts
+│   │   │   ├── ticket-context.model.ts        # 🎫 Ticket data models
+│   │   │   ├── detection-config.model.ts      # ⚙️ Configuration models
+│   │   │   └── detection-result.model.ts      # 📊 Result models
+│   │   └── strategies/                         # 🎯 Extensible strategies
 │   ├── test-analyzer.ts     # 🧪 Analyze auto test results
 │   ├── thread-analyzer.ts   # 🧵 Dedicated thread review analysis
 │   ├── test-report-formatter.ts # 📋 Format test results with improved styling
@@ -90,15 +105,53 @@ if (legacyBot) return new WebClient(legacyBot);
 
 ### 🏢 **Services Layer** (Business Logic)
 
-#### 🔍 **issue-detector.ts**
-- **Purpose**: Find blocking and critical issues in channels with advanced thread support
-- **Key Methods**: `findIssues()`, `formatIssuesReport()`, `extractThreadTsFromPermalink()`
-- **Analysis**: Advanced text pattern matching for severity keywords with thread context analysis
-- **Thread Support**: Automatically detects and processes threaded conversations for complete issue context
-- **Permalink Parsing**: Extracts thread timestamps from Slack permalinks when API doesn't provide them
-- **Implicit Ticket Detection**: Detects blocking tickets from thread replies like "prio: blocker" even when ticket isn't repeated
-- **Issue Types**: Supports blocking, critical, and blocking_resolved classifications
-- **Output**: Structured issue reports with JIRA tickets and resolution status
+#### 🔍 **issue-detector.ts** (Pipeline Orchestrator)
+- **Purpose**: Main service that orchestrates the modular issue detection pipeline
+- **Key Methods**: `findIssues()`, `formatIssuesReport()`
+- **Architecture**: Uses dependency injection to coordinate specialized services
+- **Backward Compatibility**: Maintains existing API while using new modular architecture
+- **Size**: Reduced from 811 lines to 214 lines (73% reduction)
+
+#### 🏗️ **issue-detection/** (Modular Pipeline)
+- **Purpose**: Complete refactoring of issue detection into specialized, testable services
+- **Architecture**: Pipeline pattern with clear separation of concerns
+- **Benefits**: Improved maintainability, testability, and extensibility
+
+##### 📊 **Pipeline Orchestrator**
+- **File**: `pipeline/issue-detection.pipeline.ts` (225 lines)
+- **Purpose**: Coordinates data flow between all services
+- **Pattern**: Raw Messages → Parse → Analyze → Deduplicate → Issues
+- **Error Handling**: Comprehensive error aggregation and reporting
+
+##### 🌐 **Slack Message Service**
+- **File**: `services/slack-message.service.ts` (155 lines)
+- **Purpose**: Pure API communication layer for Slack operations
+- **Methods**: `findBlockerMessages()`, `getThreadContext()`
+- **Features**: Search API integration, thread fetching, message filtering
+
+##### 🕵️ **Blocker Pattern Service**
+- **File**: `services/blocker-pattern.service.ts` (182 lines)
+- **Purpose**: Text analysis and pattern matching for blocking/critical indicators
+- **Methods**: `hasBlockingIndicators()`, `hasCriticalIndicators()`, `extractTickets()`
+- **Features**: JIRA ticket extraction, regex compilation, keyword detection
+
+##### 🧵 **Context Analyzer Service**
+- **File**: `services/context-analyzer.service.ts` (279 lines)
+- **Purpose**: Advanced thread analysis and context extraction
+- **Methods**: `analyzeTicketInContext()`, `analyzeTickets()`
+- **Features**: Thread-specific blocking analysis, implicit ticket detection, resolution tracking
+
+##### 🔄 **Smart Deduplicator Service**
+- **File**: `services/smart-deduplicator.service.ts` (218 lines)
+- **Purpose**: Intelligent duplicate detection and prioritization
+- **Methods**: `deduplicateWithPriority()`
+- **Features**: Context-aware deduplication, thread vs list priority, ticket merging
+
+##### 📋 **Service Interfaces & Models**
+- **File**: `models/service-interfaces.ts` (87 lines)
+- **Purpose**: Type-safe contracts for all services
+- **Includes**: `ISlackMessageService`, `IPatternMatcher`, `IContextAnalyzer`, `IDeduplicator`
+- **Benefits**: Dependency injection support, compile-time type checking
 
 #### 🧪 **test-analyzer.ts**  
 - **Purpose**: Analyze automated test results and coordinate analysis pipeline
@@ -175,9 +228,38 @@ MCP Client → server.ts → Handler → Service → Client → Slack API
 Environment → SlackAuth → WebClient → API Requests
 ```
 
-### 3. **Analysis Flow**
+### 3. **Issue Detection Pipeline Flow**
 ```
-Channel Messages → Text Analysis → Pattern Detection → Business Logic → Report
+Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyzerService → SmartDeduplicatorService → Issues
+       ↓              ↓                       ↓                       ↓                       ↓              ↓
+    Search API    Message Filtering      Text Patterns        Thread Analysis      Duplicate Removal    Final Report
+```
+
+### 4. **Detailed Pipeline Data Flow**
+```
+1. SlackMessageService.findBlockerMessages()
+   → Search Slack API for blocker/blocking keywords
+   → Filter out negative phrases
+   → Return seed messages
+
+2. BlockerPatternService.parseBlockerList()
+   → Extract explicit blocker lists (e.g., "Blockers: • TICKET-123")
+   → Parse ticket-thread pairs from structured messages
+
+3. ContextAnalyzerService.analyzeTickets()
+   → Analyze each ticket in thread context
+   → Detect implicit blocking in thread replies
+   → Track resolution status across conversation
+
+4. SmartDeduplicatorService.deduplicateWithPriority()
+   → Remove duplicate tickets
+   → Prioritize thread context over list-only entries
+   → Merge ticket information intelligently
+
+5. IssueDetectionPipeline.detectIssues()
+   → Orchestrate entire flow
+   → Aggregate errors and results
+   → Return structured issue analysis
 ```
 
 ## 🔧 How to Work with This Project (AI Agent Guide)
@@ -189,11 +271,16 @@ Channel Messages → Text Analysis → Pattern Detection → Business Logic → 
 4. **Add business logic** in service if needed
 
 ### ✅ **Adding New Analysis Features**
-1. **Create analyzer function** in `utils/analyzers.ts`
-2. **Add service method** in appropriate service (consider thread-analyzer for review logic)
-3. **Update formatter** in `test-report-formatter.ts` if output changes needed
-4. **Update handler** to use new service method
-5. **Add tool definition** if exposing to MCP
+1. **Identify the appropriate service** in the pipeline:
+   - **SlackMessageService**: For new Slack API operations
+   - **BlockerPatternService**: For new text patterns or keywords
+   - **ContextAnalyzerService**: For thread analysis or context extraction
+   - **SmartDeduplicatorService**: For deduplication logic
+2. **Update service interface** in `models/service-interfaces.ts`
+3. **Implement the feature** in the appropriate service class
+4. **Update the pipeline** in `pipeline/issue-detection.pipeline.ts` if needed
+5. **Update handler** to use new service method
+6. **Add tool definition** if exposing to MCP
 
 ### ✅ **Working with Test Result Formatting**
 1. **Modify display logic** in `services/test-report-formatter.ts`

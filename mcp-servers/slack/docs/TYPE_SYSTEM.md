@@ -4,6 +4,33 @@
 
 This document maps out the type system to help AI agents understand data flow and interfaces.
 
+### 📈 **Architecture Evolution**
+**Before:** Monolithic `IssueDetectorService` (811 lines)
+**After:** Modular Pipeline Architecture (1,509 lines total)
+- **Main Service:** 73% reduction (811 → 214 lines)
+- **Modular Services:** 5 specialized services with clear responsibilities
+- **Type Safety:** Comprehensive interfaces and contracts
+- **Maintainability:** Isolated concerns, easier testing, parallel development
+
+### 🏗️ **Modular Pipeline Structure**
+```
+issue-detection/
+├── pipeline/
+│   ├── issue-detection.pipeline.ts    # Orchestrator (225 lines)
+│   └── pipeline-step.interface.ts      # Contracts (61 lines)
+├── services/
+│   ├── slack-message.service.ts        # API Layer (155 lines)
+│   ├── blocker-pattern.service.ts      # Text Analysis (182 lines)
+│   ├── context-analyzer.service.ts     # Thread Analysis (279 lines)
+│   └── smart-deduplicator.service.ts   # Deduplication (218 lines)
+├── models/
+│   ├── service-interfaces.ts           # Contracts (87 lines)
+│   ├── ticket-context.model.ts         # Data Models (35 lines)
+│   ├── detection-config.model.ts       # Configuration (28 lines)
+│   └── detection-result.model.ts       # Results (25 lines)
+└── strategies/                          # Future extensibility
+```
+
 ## 📋 Main Type Definitions (`types/index.ts`)
 
 ### 🔧 Tool Arguments
@@ -106,19 +133,41 @@ interface UserInfo {
 
 ## 🔄 Data Flow Type Mappings
 
-### 1. **Tool Input → Service Processing**
+### 1. **Tool Input → Pipeline Processing**
 ```
-ToolArgs → SlackMessage[] → Analysis Results → Formatted Response
+ToolArgs → IssueDetectionPipeline → Service Results → Formatted Response
+                ↓
+        ┌─────────────────┐
+        │ Pipeline Steps  │
+        │ 1. Messages     │
+        │ 2. Parse        │
+        │ 3. Analyze      │
+        │ 4. Deduplicate  │
+        └─────────────────┘
 ```
 
-### 2. **Channel Resolution Flow**
+### 2. **Issue Detection Pipeline Flow**
+```
+Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyzerService → SmartDeduplicatorService → Issues
+       ↓              ↓                       ↓                       ↓                       ↓              ↓
+    SlackMessage   TicketContext         TicketContext          Issue[]                Issue[]         Issue[]
+```
+
+### 3. **Channel Resolution Flow**
 ```
 string (#channel/@user/ID) → SlackResolver → string (conversation ID)
 ```
 
-### 3. **Authentication Flow**
+### 4. **Authentication Flow**
 ```
 Environment Variables → SlackAuth → WebClient → Slack API Types
+```
+
+### 5. **Service Interface Flow**
+```
+ISlackMessageService   →   IPatternMatcher   →   IContextAnalyzer   →   IDeduplicator
+        ↓                       ↓                       ↓                       ↓
+  SlackMessage[]         TicketContext[]         Issue[]               Issue[]
 ```
 
 ## 🎛️ Handler Type Patterns
@@ -203,6 +252,48 @@ interface TestAnalysis {
 
 // Pattern extraction
 type JiraTickets = string[];   // Array of "PROJ-123" format tickets
+```
+
+### 🏗️ Pipeline Service Interface Types
+```typescript
+// Service contracts for the modular issue detection pipeline
+interface ISlackMessageService {
+  findBlockerMessages(channel: string, date: string): Promise<SlackMessage[]>;
+  getThreadContext(message: SlackMessage, channel?: string): Promise<SlackMessage[]>;
+}
+
+interface IPatternMatcher {
+  hasBlockingIndicators(text: string): boolean;
+  hasCriticalIndicators(text: string): boolean;
+  extractTickets(text: string): JiraTicketInfo[];
+  parseBlockerList(text: string): TicketContext[];
+}
+
+interface IContextAnalyzer {
+  analyzeTicketInContext(ticket: JiraTicketInfo, context: SlackMessage[]): Promise<Issue>;
+  analyzeTickets(tickets: TicketContext[], messages: SlackMessage[]): Promise<Issue[]>;
+}
+
+interface IDeduplicator {
+  deduplicateWithPriority(issues: Issue[]): Issue[];
+}
+
+// Internal pipeline data structures
+interface TicketContext {
+  key: string;
+  url?: string;
+  project?: string;
+  threadLink?: string;
+  sourceText?: string;
+  timestamp?: string;
+}
+
+interface DetectionResult {
+  issues: Issue[];
+  analyzedThreads: number;
+  totalMessages: number;
+  processingTime: number;
+}
 ```
 
 ## 🌐 Slack API Type Integration
