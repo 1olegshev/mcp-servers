@@ -136,7 +136,7 @@ describe('IssueDetectionPipeline', () => {
     it('should handle partial failures in search queries', async () => {
       // Some searches succeed, some fail
       mockSlackClient.searchMessages
-        .mockResolvedValueOnce([{ ts: '123', text: 'blocker' }]) // Success
+        .mockResolvedValueOnce([{ ts: '123', text: 'blocker PROJ-456' }]) // Success
         .mockRejectedValueOnce(new Error('Search failed'))       // Failure
         .mockResolvedValue([]); // Rest succeed with empty results
 

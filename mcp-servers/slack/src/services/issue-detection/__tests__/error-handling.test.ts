@@ -43,7 +43,7 @@ describe('Error Handling and Edge Cases', () => {
     it('should handle partial API failures', async () => {
       // Some searches succeed, others fail
       mockClient.searchMessages
-        .mockResolvedValueOnce([{ ts: '123', text: 'blocker found' }])
+        .mockResolvedValueOnce([{ ts: '123', text: 'blocker PROJ-123 found' }])
         .mockRejectedValueOnce(new Error('API rate limit'))
         .mockResolvedValue([]);
 
