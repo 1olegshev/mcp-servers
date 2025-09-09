@@ -19,10 +19,25 @@ Lists tickets in testing phases with conditional defaults:
 Project filtering automatically excludes non-core projects (DBSLA, INFRA, etc.).
 
 ### `get_testing_summary`
-Provides count summaries across testing statuses, optionally broken down by domain (frontend/backend/wordpress/other).
+Provides count summaries across testing statuses, optionally broken down by domain (frontend/backend/wordpress/other) and by teams.
 
 ### `search_issues`
 JQL search with automatic team label expansion and NoTest filtering options.
+
+### `get_team_tickets`
+Get tickets for specific teams in a given status with automatic team label mapping.
+
+### `get_issue_details`
+Get detailed information about a specific issue including assignee, reporter, priority, labels, and components.
+
+### `get_boards`
+List all available Jira boards with optional type filtering (scrum, kanban, simple).
+
+### `update_issue_labels`
+Update labels on a Jira issue by providing an array of label strings.
+
+### `update_issue_components`
+Update components on a Jira issue by providing an array of component IDs.
 
 ## Configuration
 

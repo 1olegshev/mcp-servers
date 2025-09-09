@@ -39,7 +39,8 @@ class JiraMCPServer {
   private readonly DOMAIN_QUERIES: Record<string, string> = {
     frontend: '(project = KAHOOT AND labels in (kahoot-frontend))',
     backend: '(project = BACK)',
-    wordpress: '(project = OPT)'
+    wordpress: '(project = OPT)',
+    remix: '(labels in (kahoot-remix))'
   };
 
   constructor() {
@@ -148,12 +149,12 @@ class JiraMCPServer {
           // Keep the tool list focused on testing progress
           {
             name: 'get_testing_summary',
-            description: 'Summarize counts for In QA, Testing, Test Passed on board scope, optionally per domain (frontend/backend/wordpress/other) and/or by teams. NoTest excluded by default.',
+            description: 'Summarize counts for In QA, Testing, Test Passed on board scope, optionally per domain (frontend/backend/remix/wordpress/other) and/or by teams. NoTest excluded by default.',
             inputSchema: {
               type: 'object',
               properties: {
                 boardId: { type: 'number', description: 'Jira board id', default: 23 },
-                domain: { type: 'string', description: 'all | frontend | backend | wordpress | other', default: 'all' },
+                domain: { type: 'string', description: 'all | frontend | backend | remix | wordpress | other', default: 'all' },
                 separateNoTest: { type: 'boolean', description: 'If true, adds a separate NoTest counts block', default: false },
                 byTeams: { type: 'boolean', description: 'If true, adds breakdown by teams', default: true }
               },
@@ -162,12 +163,12 @@ class JiraMCPServer {
           },
           {
             name: 'get_testing_remaining',
-            description: 'List tickets remaining in testing or QA on board scope. Conditional defaults: when separateNoTest=true defaults to ["In QA", "Testing"], otherwise defaults to ["Testing"].',
+            description: 'List tickets remaining in testing or QA on board scope. Conditional defaults: when separateNoTest=true defaults to ["In QA", "Testing"], otherwise defaults to ["Testing"]. Supports domain filtering (frontend/backend/remix/wordpress/other).',
             inputSchema: {
               type: 'object',
               properties: {
                 boardId: { type: 'number', description: 'Jira board id', default: 23 },
-                domain: { type: 'string', description: 'all | frontend | backend | wordpress | other', default: 'all' },
+                domain: { type: 'string', description: 'all | frontend | backend | remix | wordpress | other', default: 'all' },
                 statuses: { type: 'array', description: 'Statuses to include (e.g., ["In QA", "Testing"])', items: { type: 'string' }, default: [] },
                 limit: { type: 'number', description: 'Max results to list', default: 50 },
                 separateNoTest: { type: 'boolean', description: 'If true, shows a separate section for NoTest items in same scope', default: false }
@@ -229,12 +230,70 @@ class JiraMCPServer {
             inputSchema: {
               type: 'object',
               properties: {
-                issueKey: { 
-                  type: 'string', 
-                  description: 'Issue key (e.g., PROJ-123)' 
+                issueKey: {
+                  type: 'string',
+                  description: 'Issue key (e.g., PROJ-123)'
                 }
               },
               required: ['issueKey']
+            }
+          },
+          {
+            name: 'get_boards',
+            description: 'List all available Jira boards',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                type: {
+                  type: 'string',
+                  description: 'Filter by board type (scrum, kanban, simple)',
+                  enum: ['scrum', 'kanban', 'simple']
+                },
+                maxResults: {
+                  type: 'number',
+                  description: 'Maximum number of boards to return',
+                  default: 50
+                }
+              },
+              required: []
+            }
+          },
+          {
+            name: 'update_issue_labels',
+            description: 'Update labels on a Jira issue',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                issueKey: {
+                  type: 'string',
+                  description: 'Issue key (e.g., PROJ-123)'
+                },
+                labels: {
+                  type: 'array',
+                  description: 'Array of labels to set on the issue',
+                  items: { type: 'string' }
+                }
+              },
+              required: ['issueKey', 'labels']
+            }
+          },
+          {
+            name: 'update_issue_components',
+            description: 'Update components on a Jira issue',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                issueKey: {
+                  type: 'string',
+                  description: 'Issue key (e.g., PROJ-123)'
+                },
+                componentIds: {
+                  type: 'array',
+                  description: 'Array of component IDs to set on the issue',
+                  items: { type: 'string' }
+                }
+              },
+              required: ['issueKey', 'componentIds']
             }
           }
         ]
@@ -257,6 +316,12 @@ class JiraMCPServer {
             return await this.getTestingSummary((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.separateNoTest ?? false, (args as any)?.byTeams ?? true);
           case 'get_testing_remaining':
             return await this.getTestingRemaining((args as any)?.boardId ?? 23, (args as any)?.domain ?? 'all', (args as any)?.statuses, (args as any)?.limit ?? 50, (args as any)?.separateNoTest ?? false);
+          case 'get_boards':
+            return await this.getBoards((args as any)?.type, (args as any)?.maxResults || 50);
+          case 'update_issue_labels':
+            return await this.updateIssueLabels((args as any)?.issueKey, (args as any)?.labels);
+          case 'update_issue_components':
+            return await this.updateIssueComponents((args as any)?.issueKey, (args as any)?.componentIds);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -347,7 +412,7 @@ class JiraMCPServer {
 
       if (domain === 'all') {
         // Add per-domain lines
-        for (const d of ['frontend', 'backend', 'wordpress', 'other']) {
+        for (const d of ['frontend', 'backend', 'remix', 'wordpress', 'other']) {
           const dj = this.buildDomainJql(d);
           const jf = this.buildRobustJql([baseJql, dj, statusJql], false);
           const res = await this.jira.searchIssues(jf, 200);
@@ -588,6 +653,74 @@ class JiraMCPServer {
       return this.formatSuccessResponse(`Issue details for ${issue.key}`, details);
     } catch (error: any) {
       throw new Error(`Failed to get issue details: ${error.message}`);
+    }
+  }
+
+  private async getBoards(type?: string, maxResults: number = 50) {
+    try {
+      const result = await this.jira.getBoards();
+
+      let boards = result.values || [];
+
+      // Filter by type if specified
+      if (type) {
+        boards = boards.filter(board => board.type.toLowerCase() === type.toLowerCase());
+      }
+
+      // Limit results
+      boards = boards.slice(0, maxResults);
+
+      if (boards.length === 0) {
+        const typeFilter = type ? ` of type "${type}"` : '';
+        return this.formatErrorResponse(`No boards found${typeFilter}`);
+      }
+
+      const boardList = boards.map(board => {
+        const boardUrl = `${this.baseUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`;
+        return `• **${board.name}** (ID: ${board.id}, Type: ${board.type})
+   📍 Project: ${board.location?.projectName || 'N/A'} | 🔗 <${boardUrl}|Open>`;
+      }).join('\n\n');
+
+      const typeFilter = type ? ` of type "${type}"` : '';
+      return this.formatSuccessResponse(`Found ${boards.length} board(s)${typeFilter}`, boardList);
+    } catch (error: any) {
+      throw new Error(`Failed to get boards: ${error.message}`);
+    }
+  }
+
+  private async updateIssueLabels(issueKey: string, labels: string[]) {
+    if (!issueKey) {
+      throw new Error('Issue key is required');
+    }
+
+    if (!Array.isArray(labels)) {
+      throw new Error('Labels must be an array');
+    }
+
+    try {
+      await this.jira.updateIssueLabels(issueKey, labels);
+      const labelText = labels.length > 0 ? labels.join(', ') : 'none';
+      return this.formatSuccessResponse(`Updated labels on ${issueKey} to: ${labelText}`);
+    } catch (error: any) {
+      throw new Error(`Failed to update issue labels: ${error.message}`);
+    }
+  }
+
+  private async updateIssueComponents(issueKey: string, componentIds: string[]) {
+    if (!issueKey) {
+      throw new Error('Issue key is required');
+    }
+
+    if (!Array.isArray(componentIds)) {
+      throw new Error('Component IDs must be an array');
+    }
+
+    try {
+      await this.jira.updateIssueComponents(issueKey, componentIds);
+      const componentText = componentIds.length > 0 ? `${componentIds.length} component(s)` : 'none';
+      return this.formatSuccessResponse(`Updated components on ${issueKey} to: ${componentText}`);
+    } catch (error: any) {
+      throw new Error(`Failed to update issue components: ${error.message}`);
     }
   }
 

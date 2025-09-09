@@ -98,11 +98,12 @@ npm run start:release-coordinator
 
 - **search_issues**: Search issues with JQL (with smart NoTest filtering and team expansion)
 - **get_team_tickets**: Get tickets for specific teams using business logic
-- **get_testing_board_issues**: Get issues from specific testing board
-- **get_issue_details**: Get detailed issue information  
-- **get_boards**: List all available Jira boards
-- **update_issue_labels**: Update issue labels
-- **update_issue_components**: Update issue components
+- **get_testing_summary**: Get summary counts for In QA, Testing, Test Passed with optional domain/team breakdowns
+- **get_testing_remaining**: List tickets remaining in testing/QA phases with flexible status filtering
+- **get_issue_details**: Get detailed issue information
+- **get_boards**: List all available Jira boards with optional type filtering
+- **update_issue_labels**: Update labels on Jira issues
+- **update_issue_components**: Update components on Jira issues
 
 **🔍 Smart NoTest Filtering:**
 By default, all searches exclude tickets with NoTest labels (`NoTest`, `no-test`, `notest`, `noTest`, `Notest`) to match your testing board behavior. Use `includeNoTest: true` parameter to include them.
@@ -116,6 +117,12 @@ Automatically maps team names to their projects and labels:
 - **PuzzlesTeam**: `project = "DragonBox Labs and Puzzles" OR labels in (PuzzlesTeam)`
 - **GameFactory**: `labels in (engaging-learning, GameFactory)`
 - **Corporate**: `labels in (corporate-learning, coreteamx, KahootX)`
+
+**🎵 Remix Domain:**
+Tickets with `kahoot-remix` labels are now tracked separately in domain breakdowns:
+- Available as `remix` domain filter
+- Shows in testing progress overview tables
+- Released separately from main deployment
 
 **📊 Consistent Output Format:**
 All tools return tickets in the same format:
