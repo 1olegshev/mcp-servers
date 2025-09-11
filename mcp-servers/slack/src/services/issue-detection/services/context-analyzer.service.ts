@@ -123,6 +123,20 @@ export class ContextAnalyzerService implements IContextAnalyzer {
     let isBlocking = false;
     let isResolved = false;
 
+    // BUSINESS RULE: Hotfixes are ONLY made for blockers
+    // Check for hotfix context first - if ticket is in hotfix list, it's automatically blocking
+    let foundInHotfixContext = false;
+    for (const message of threadMessages) {
+      const text = (message.text || '').toLowerCase();
+      const mentionsTicket = text.includes(ticketKey.toLowerCase());
+      
+      if (mentionsTicket && this.isHotfixContext(text)) {
+        isBlocking = true;
+        foundInHotfixContext = true;
+        break; // Found in hotfix context, no need to check further
+      }
+    }
+
     // First pass: check for explicit ticket-specific blocking/resolution mentions
     for (const message of threadMessages) {
       const text = (message.text || '').toLowerCase();
@@ -173,7 +187,10 @@ export class ContextAnalyzerService implements IContextAnalyzer {
         }
         if (hasResolutionKeyword) {
           isResolved = true;
-          isBlocking = false;
+          // BUSINESS RULE: Don't override hotfix context - hotfixes are always blockers even if marked "ready"
+          if (!foundInHotfixContext) {
+            isBlocking = false;
+          }
         }
       }
     }
@@ -275,5 +292,27 @@ export class ContextAnalyzerService implements IContextAnalyzer {
       console.error('Failed to get thread permalink:', error);
       return undefined;
     }
+  }
+
+  /**
+   * Check if a message text indicates hotfix context
+   * BUSINESS RULE: Hotfixes are ONLY made for blockers
+   */
+  private isHotfixContext(text: string): boolean {
+    const lowerText = text.toLowerCase();
+    
+    // Look for hotfix list patterns
+    const hotfixPatterns = [
+      /list\s+of\s+hotfixes/i,
+      /hotfixes?\s*:/i,
+      /•.*hotfix/i,
+      /-.*hotfix/i,
+      /hotfix\s+pr/i,
+      /hotfix\s+branch/i,
+      /prepare\s+a?\s*hotfix/i,
+      /should.*hotfix/i
+    ];
+
+    return hotfixPatterns.some(pattern => pattern.test(lowerText));
   }
 }

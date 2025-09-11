@@ -21,6 +21,12 @@ export class BlockerPatternService implements IPatternMatcher {
   hasBlockingIndicators(text: string): boolean {
     const lowerText = text.toLowerCase();
 
+    // BUSINESS RULE: Hotfixes are ONLY made for blockers
+    // Check for hotfix context first
+    if (this.isHotfixContext(text)) {
+      return true;
+    }
+
     // Accept explicit signals or release/deploy contexts only; avoid generic 'blocks' (e.g., UI blocks)
     const explicit = /\b(blocker|blocking)\b/i.test(text) || /release\s*blocker/i.test(text);
     const releaseContext = /(\bblock(s)?\b|\bblocking\b).*\b(release|deploy(?:ment)?|prod(?:uction)?)\b/i.test(lowerText);
@@ -78,13 +84,17 @@ export class BlockerPatternService implements IPatternMatcher {
 
   /**
    * Parse explicit blocker lists from messages
-   * e.g., "Blockers: • TICKET-123 • TICKET-456" or "Blockers:\n- TICKET-123\n- TICKET-456"
+   * e.g., "Blockers: • TICKET-123 • TICKET-456" or "List of hotfixes: • TICKET-123 • TICKET-456"
+   * BUSINESS RULE: Hotfixes are ONLY made for blockers
    */
   parseBlockerList(text: string): TicketContext[] {
     const tickets: TicketContext[] = [];
 
-    // Look for explicit blocker lists
-    if (/\bblockers?\b.*:/i.test(text) || /blockers?\s*for/i.test(text)) {
+    // Look for explicit blocker lists OR hotfix lists (hotfixes = blockers)
+    const isBlockerList = /\bblockers?\b.*:/i.test(text) || /blockers?\s*for/i.test(text);
+    const isHotfixList = /list\s+of\s+hotfixes/i.test(text) || /hotfixes?\s*:/i.test(text);
+
+    if (isBlockerList || isHotfixList) {
       // Extract ticket-thread link pairs from the message
       const ticketThreadPairs = this.extractTicketThreadPairs(text);
 
@@ -186,5 +196,27 @@ export class BlockerPatternService implements IPatternMatcher {
     }
 
     return keywords;
+  }
+
+  /**
+   * Check if a message text indicates hotfix context
+   * BUSINESS RULE: Hotfixes are ONLY made for blockers
+   */
+  private isHotfixContext(text: string): boolean {
+    const lowerText = text.toLowerCase();
+    
+    // Look for hotfix list patterns
+    const hotfixPatterns = [
+      /list\s+of\s+hotfixes/i,
+      /hotfixes?\s*:/i,
+      /•.*hotfix/i,
+      /-.*hotfix/i,
+      /hotfix\s+pr/i,
+      /hotfix\s+branch/i,
+      /prepare\s+a?\s*hotfix/i,
+      /should.*hotfix/i
+    ];
+
+    return hotfixPatterns.some(pattern => pattern.test(lowerText));
   }
 }
