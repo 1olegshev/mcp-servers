@@ -383,27 +383,19 @@ async newTool(args: ToolArgs) {
 ### ⚠️ **Slack Formatting (CRITICAL)**
 - **Use Slack markdown syntax**: `*text*` for bold, NOT `**text**`
 - **Use Slack link format**: `<url|text>` NOT `[text](url)`
-- **No traditional headers**: Slack doesn't support `# Header` - use `*Header*` instead
-- **Test formatting**: Always verify output displays correctly in Slack
-- **Remember**: Standard markdown breaks Slack display - use Slack-specific formatting
+- **See QUICK_REFERENCE.md**: Full formatting guide with examples
 
 ### ⚠️ **Error Handling**
 - **Always** extend BaseHandler for consistent error patterns
 - **Use** McpError for MCP-compatible error responses
 - **Catch** Slack API errors and convert appropriately
-- **ESM Modules**: Use import statements, avoid require() - project is full ES modules
+- **ESM Modules**: See QUICK_REFERENCE.md for ESM troubleshooting
 
 ### ⚠️ **Performance**
 - **Cache** user lookups in SlackResolver
 - **Limit** message history queries (default 200 messages)
 - **Paginate** large result sets
 - **Optimize** formatter output by minimizing API calls
-
-### ⚠️ **Module System**
-- **Use ES modules**: All imports must use `.js` extensions
-- **Avoid CommonJS**: No require() statements - use import/export
-- **Build before testing**: Always run `npm run build` after TypeScript changes
-- **Debug logging**: Removed file-based logging to avoid ESM issues
 
 ## 🎯 Business Logic Context
 
