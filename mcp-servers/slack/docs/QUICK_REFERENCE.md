@@ -309,6 +309,11 @@ const fs = require('fs'); // Will cause module loading errors
 
 // Don't omit .js extensions in imports
 import { Tool } from './my-tool'; // Missing .js extension
+
+// ❌ CRITICAL: Don't use standard markdown in Slack output
+output += `**BLOCKING ISSUES**`; // Wrong! Uses standard markdown
+output += `[TICKET-123](https://url.com)`; // Wrong! Standard link format
+output += `# Header`; // Wrong! Slack doesn't support headers
 ```
 
 ### ✅ Do
@@ -332,6 +337,71 @@ import fs from 'fs'; // Correct ES module import
 
 // Include .js extensions
 import { Tool } from './my-tool.js'; // Correct import path
+
+// ✅ CRITICAL: Use Slack markdown formatting
+output += `*BLOCKING ISSUES*`; // Correct! Single asterisks for bold
+output += `<https://url.com|TICKET-123>`; // Correct! Slack link format
+output += `*Header*`; // Correct! Bold text instead of headers
+```
+
+## 🎨 Slack Formatting Guide
+
+### 🚨 **CRITICAL RULE: Always Use Slack Markdown Syntax**
+
+Slack uses its own markdown format that is **different** from standard markdown. Using standard markdown will break formatting in Slack messages.
+
+### ✅ **Correct Slack Formatting**
+```typescript
+// Bold text
+output += `*Bold Text*`;  // Single asterisks
+
+// Links  
+output += `<https://example.com|Link Text>`;  // Angle brackets with pipe
+
+// Lists (no special formatting needed)
+output += `• Item 1\n• Item 2`;
+
+// Code
+output += "`inline code`";  // Same as standard markdown
+
+// Blockquotes
+output += `> This is a quote`;  // Same as standard markdown
+
+// Headers (use bold text instead)
+output += `*Section Header*\n`;  // Bold text for headers
+```
+
+### ❌ **Wrong (Standard Markdown - Breaks in Slack)**
+```typescript
+// These will NOT display correctly in Slack
+output += `**Bold Text**`;  // Double asterisks - WRONG
+output += `[Link Text](https://example.com)`;  // Brackets - WRONG  
+output += `# Header`;  // Hash headers - WRONG
+output += `## Subheader`;  // Hash headers - WRONG
+```
+
+### 🧪 **Test Your Formatting**
+Always test Slack output by:
+1. Running the tool and checking the actual Slack message
+2. Using the release status script to post to #qa-release-status
+3. Verifying links are clickable and text is properly formatted
+
+### 📋 **Formatting Examples for Common Patterns**
+```typescript
+// Issue reports
+output += `🚨 *BLOCKING ISSUES* (${count}):\n`;
+output += `Issues that block release deployment\n\n`;
+
+// Ticket links
+const ticketUrl = 'https://jira.company.com/TICKET-123';
+output += `🎫 *Tickets*: <${ticketUrl}|TICKET-123>\n`;
+
+// Slack permalinks
+output += `🔗 <${permalink}|Open thread>\n`;
+
+// Status messages
+output += `✅ No blocking issues found\n`;
+output += `❌ Critical issues require attention\n`;
 ```
 
 ## 📈 Performance Tips

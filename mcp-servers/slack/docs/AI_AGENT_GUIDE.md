@@ -380,6 +380,13 @@ async newTool(args: ToolArgs) {
 - **Authentication** uses XOXC/XOXD session tokens (not bot tokens)
 - **Validation** always validate inputs in handlers
 
+### ⚠️ **Slack Formatting (CRITICAL)**
+- **Use Slack markdown syntax**: `*text*` for bold, NOT `**text**`
+- **Use Slack link format**: `<url|text>` NOT `[text](url)`
+- **No traditional headers**: Slack doesn't support `# Header` - use `*Header*` instead
+- **Test formatting**: Always verify output displays correctly in Slack
+- **Remember**: Standard markdown breaks Slack display - use Slack-specific formatting
+
 ### ⚠️ **Error Handling**
 - **Always** extend BaseHandler for consistent error patterns
 - **Use** McpError for MCP-compatible error responses

@@ -109,22 +109,22 @@ export class IssueDetectorService {
     if (resolvedBlockers.length > 0) summary.push(`${resolvedBlockers.length} resolved blocker${resolvedBlockers.length !== 1 ? 's' : ''}`);
 
     if (summary.length > 0) {
-      output += `• **Summary**: ${summary.join(', ')} found\n\n`;
+      output += `• *Summary*: ${summary.join(', ')} found\n\n`;
     }
 
     if (blockingIssues.length > 0) {
-      output += `🚨 **BLOCKING ISSUES** (${blockingIssues.length}):\n`;
-      output += `*Issues that block release deployment*\n\n`;
+      output += `🚨 *BLOCKING ISSUES* (${blockingIssues.length}):\n`;
+      output += `Issues that block release deployment\n\n`;
 
       blockingIssues.forEach((issue, i) => {
-        output += `**${i + 1}. Blocker**\n`;
+        output += `*${i + 1}. Blocker*\n`;
 
         if (issue.tickets.length > 0) {
           // Safety dedup at presentation time
           const uniq = new Map(issue.tickets.map(t => [t.key, t]));
-          output += `🎫 **Tickets**: `;
+          output += `🎫 *Tickets*: `;
           const ticketLinks = Array.from(uniq.values()).map(ticket => {
-            return ticket.url ? `[${ticket.key}](${ticket.url})` : ticket.key;
+            return ticket.url ? `<${ticket.url}|${ticket.key}>` : ticket.key;
           });
           output += ticketLinks.join(', ') + '\n';
         }
@@ -139,11 +139,11 @@ export class IssueDetectorService {
     }
 
     if (criticalIssues.length > 0) {
-      output += `⚠️ **CRITICAL ISSUES** (${criticalIssues.length}):\n`;
-      output += `*High priority issues requiring attention*\n\n`;
+      output += `⚠️ *CRITICAL ISSUES* (${criticalIssues.length}):\n`;
+      output += `High priority issues requiring attention\n\n`;
 
       criticalIssues.forEach((issue, i) => {
-        output += `**${i + 1}. Critical Report**\n`;
+        output += `*${i + 1}. Critical Report*\n`;
         output += `${issue.text}\n`;
         output += `⏰ ${DateUtils.formatTimestamp(issue.timestamp)}\n`;
         if (issue.permalink) {
@@ -153,16 +153,16 @@ export class IssueDetectorService {
 
         if (issue.tickets.length > 0) {
           const uniq = new Map(issue.tickets.map(t => [t.key, t]));
-          output += `🎫 **Related Tickets**:\n`;
+          output += `🎫 *Related Tickets*:\n`;
           Array.from(uniq.values()).forEach(ticket => {
             const projectText = ticket.project ? ` | 📁 ${ticket.project}` : '';
-            const linkText = ticket.url ? ` | 🔗 [Open](${ticket.url})` : '';
-            output += `   • **${ticket.key}**${projectText}${linkText}\n`;
+            const linkText = ticket.url ? ` | 🔗 <${ticket.url}|Open>` : '';
+            output += `   • *${ticket.key}*${projectText}${linkText}\n`;
           });
         }
 
         if (issue.hasThread) {
-          output += `💬 *Has thread discussion - check for resolution status*\n`;
+          output += `💬 Has thread discussion - check for resolution status\n`;
         }
 
         output += '\n---\n\n';
@@ -170,23 +170,23 @@ export class IssueDetectorService {
     }
 
     if (resolvedBlockers.length > 0) {
-      output += `🟠 **RESOLVED BLOCKERS** (${resolvedBlockers.length}):\n`;
-      output += `*Previously blocking issues that have been resolved*\n\n`;
+      output += `🟠 *RESOLVED BLOCKERS* (${resolvedBlockers.length}):\n`;
+      output += `Previously blocking issues that have been resolved\n\n`;
 
       resolvedBlockers.forEach((issue, i) => {
-        output += `**${i + 1}. Resolved Blocker**\n`;
+        output += `*${i + 1}. Resolved Blocker*\n`;
 
         if (issue.tickets.length > 0) {
           const uniq = new Map(issue.tickets.map(t => [t.key, t]));
-          output += `🎫 **Tickets**: `;
+          output += `🎫 *Tickets*: `;
           const ticketLinks = Array.from(uniq.values()).map(ticket => {
-            return ticket.url ? `[${ticket.key}](${ticket.url})` : ticket.key;
+            return ticket.url ? `<${ticket.url}|${ticket.key}>` : ticket.key;
           });
           output += ticketLinks.join(', ') + '\n';
         }
 
         if (issue.resolutionText) {
-          output += `✅ **Resolution**: ${issue.resolutionText.substring(0, 100)}${issue.resolutionText.length > 100 ? '...' : ''}\n`;
+          output += `✅ *Resolution*: ${issue.resolutionText.substring(0, 100)}${issue.resolutionText.length > 100 ? '...' : ''}\n`;
         }
 
         if (issue.permalink) {
@@ -199,7 +199,7 @@ export class IssueDetectorService {
     }
 
     if (issues.length === 0) {
-      output += `✅ *No blocking or critical issues found*\n`;
+      output += `✅ No blocking or critical issues found\n`;
       output += `Release deployment can proceed from issue perspective.`;
     } else {
       output += `\n📋 *Action Required:*\n`;
