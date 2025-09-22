@@ -81,10 +81,19 @@ export class ThreadAnalyzerService {
             { pattern: /passed\s+on\s+rerun/, status: '✅ resolved' },
             { pattern: /(passed|passing|fixed|resolved|green)/, status: '✅ resolved' },
             { pattern: /not\s+blocking/, status: '✅ not blocking' },
-            { pattern: /(explained|setup\s+issue|test\s+issue|just.*issue)/, status: '✅ explained' },
-            { pattern: /(fix.*review|should\s+be\s+fixed)/, status: '🔄 fix in progress' },
-            { pattern: /revert/, status: '♻️ revert planned/applied' },
+            // Active progression states
+            { pattern: /(on\s+me|my\s+responsibility|i'll\s+take|assigned\s+to\s+me)/, status: '🔄 assigned' },
             { pattern: /(retry|rerun)/, status: '🔄 rerun in progress' },
+            { pattern: /(fix.*review|should\s+be\s+fixed)/, status: '🔄 fix in progress' },
+            // Context/acknowledgement states
+            { pattern: /(known\s+issue|already\s+aware|acknowledged)/, status: 'ℹ️ acknowledged' },
+            { pattern: /(cannot\s+repro(duce)?|can[’'`]t\s+repro(duce)?|cant\s+repro(duce)?)/, status: 'ℹ️ needs repro' },
+            { pattern: /(passes|works)\s+(for\s+me\s+)?locally/, status: '⚠️ flakey/env-specific' },
+            { pattern: /(test.*updat|button.*moved|selector.*chang|selector.*moved)/, status: '🛠️ test update required' },
+            { pattern: /(root\s+cause|specific.*fix|technical.*reason)/, status: '🔍 root cause identified' },
+            { pattern: /(explained|setup\s+issue|test\s+issue|just.*issue)/, status: 'ℹ️ explained' },
+            // Investigation / failure
+            { pattern: /revert/, status: '♻️ revert planned/applied' },
             { pattern: /(investigat|working on|looking into|i'll look|as we speak)/, status: '🔍 investigating' },
             { pattern: /still\s+failing/, status: '❌ still failing' }
           ];
@@ -182,45 +191,84 @@ export class ThreadAnalyzerService {
       return '⏳ Awaiting review';
     }
     
-    // Count different status types
-    const resolvedCount = statuses.filter(s => 
-      s.toLowerCase().includes('resolved') || 
-      s.toLowerCase().includes('not blocking') ||
-      s.toLowerCase().includes('explained') ||
-      s.toLowerCase().includes('fix in progress') ||
-      s.toLowerCase().includes('✅')
-    ).length;
-    
-    const investigatingCount = statuses.filter(s => 
-      s.toLowerCase().includes('investigating') ||
-      s.toLowerCase().includes('🔍') ||
-      s.toLowerCase() === 'unclear'
-    ).length;
-    
-    const flakeyCount = statuses.filter(s => 
-      s.toLowerCase().includes('flakey') ||
-      s.toLowerCase().includes('flaky')
-    ).length;
-    
-    const blockerCount = statuses.filter(s => {
-      const statusLower = s.toLowerCase();
-      return (statusLower.includes('blocker') || statusLower.includes('blocking')) && 
-             !statusLower.includes('not blocking');
+    // Categorize statuses for clearer aggregation
+    const resolvedCount = statuses.filter(s => {
+      const l = s.toLowerCase();
+      return l.includes('resolved') || l.includes('not blocking');
     }).length;
-    
+
+    let assignedCount = 0;
+    let rerunCount = 0;
+    let fixProgressCount = 0;
+    let ackCount = 0;
+    let rootCauseCount = 0;
+    let explainedCount = 0;
+    let needsReproCount = 0;
+    let flakeyCount = 0;
+    let testUpdateCount = 0;
+
+    for (const s of statuses) {
+      const l = s.toLowerCase();
+      if (l.includes('assigned')) assignedCount++;
+      if (l.includes('rerun in progress')) rerunCount++;
+      if (l.includes('fix in progress')) fixProgressCount++;
+      if (l.includes('acknowledged')) ackCount++;
+      if (l.includes('root cause identified')) rootCauseCount++;
+      if (l.includes('explained')) explainedCount++;
+      if (l.includes('needs repro')) needsReproCount++;
+      if (l.includes('flakey') || l.includes('flaky') || l.includes('env-specific')) flakeyCount++;
+      if (l.includes('test update required')) testUpdateCount++;
+    }
+
+    const investigatingCount = statuses.filter(s => {
+      const l = s.toLowerCase();
+      return l.includes('investigating') || l.includes('🔍') || l === 'unclear';
+    }).length;
+
+    const blockerCount = statuses.filter(s => {
+      const l = s.toLowerCase();
+      return (l.includes('blocker') || l.includes('blocking')) && !l.includes('not blocking');
+    }).length;
+
     // Determine overall section status based on counts
     if (blockerCount > 0) {
       return `🚫 ${blockerCount} blocker${blockerCount > 1 ? 's' : ''} found`;
-    } else if (investigatingCount > 0) {
-      return `🔍 ${investigatingCount} test${investigatingCount > 1 ? 's' : ''} under investigation`;
-    } else if (flakeyCount > 0 && resolvedCount > 0) {
-      return `⚠️ ${flakeyCount} flakey, ${resolvedCount} resolved`;
-    } else if (flakeyCount > 0) {
-      return `⚠️ ${flakeyCount} flakey test${flakeyCount > 1 ? 's' : ''}`;
-    } else if (resolvedCount > 0) {
-      return `✅ ${resolvedCount} test${resolvedCount > 1 ? 's' : ''} resolved - not blocking`;
-    } else {
-      return '❓ Status unclear - review needed';
     }
+    if (investigatingCount > 0) {
+      return `🔍 ${investigatingCount} test${investigatingCount > 1 ? 's' : ''} under investigation`;
+    }
+    if (flakeyCount > 0 && resolvedCount > 0) {
+      return `⚠️ ${flakeyCount} flakey, ${resolvedCount} resolved`;
+    }
+    if (flakeyCount > 0) {
+      return `⚠️ ${flakeyCount} flakey test${flakeyCount > 1 ? 's' : ''}`;
+    }
+    if (resolvedCount > 0) {
+      return `✅ ${resolvedCount} test${resolvedCount > 1 ? 's' : ''} resolved - not blocking`;
+    }
+
+    // Build concise breakdown when not resolved
+    const parts: string[] = [];
+    if (assignedCount + rerunCount + fixProgressCount > 0) {
+      const inProgParts: string[] = [];
+      if (assignedCount > 0) inProgParts.push(`assigned ${assignedCount}`);
+      if (rerunCount > 0) inProgParts.push(`rerun ${rerunCount}`);
+      if (fixProgressCount > 0) inProgParts.push(`fix ${fixProgressCount}`);
+      parts.push(`🔄 ${inProgParts.join(', ')}`);
+    }
+    const contextParts: string[] = [];
+    if (ackCount > 0) contextParts.push(`ack ${ackCount}`);
+    if (rootCauseCount > 0) contextParts.push(`root cause ${rootCauseCount}`);
+    if (explainedCount > 0) contextParts.push(`explained ${explainedCount}`);
+    if (needsReproCount > 0) contextParts.push(`needs repro ${needsReproCount}`);
+    if (flakeyCount > 0) contextParts.push(`flakey ${flakeyCount}`);
+    if (testUpdateCount > 0) contextParts.push(`test update ${testUpdateCount}`);
+    if (contextParts.length > 0) {
+      parts.push(`ℹ️ ${contextParts.join(', ')}`);
+    }
+    if (parts.length > 0) {
+      return parts.join(' • ');
+    }
+    return '❓ Status unclear - review needed';
   }
 }

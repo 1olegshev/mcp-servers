@@ -165,6 +165,13 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Key Methods**: `checkForReview()`, `analyzeThreadReplies()`
 - **Analysis**: Manual rerun results, blocking status, PR/revert mentions
 - **Output**: Structured review summaries with per-test status
+- **Per-test status categories (UPDATED)**:
+  - ✅ resolved, ✅ not blocking
+  - 🔄 assigned, 🔄 rerun in progress, 🔄 fix in progress
+  - ℹ️ acknowledged, 🔍 root cause identified, ℹ️ explained
+  - ℹ️ needs repro, ⚠️ flakey/env-specific, 🛠️ test update required (e.g., selector/button moved)
+  - ❌ still failing, ♻️ revert planned/applied, 🔍 investigating
+- **Section summary (UPDATED)**: Shows concise breakdowns when not resolved, e.g. `🔄 assigned 2, rerun 1 • ℹ️ ack 1`. Resolved/not-blocking are counted explicitly; informational states do not inflate resolved counts.
 
 #### 📋 **test-report-formatter.ts** (NEW)
 - **Purpose**: Format test results with improved styling and clarity
@@ -417,6 +424,8 @@ The system analyzes multiple factors to determine release readiness:
 - **Explicit Blocker Lists**: Detects tickets in structured lists like "Blockers for Monday: • TICKET-123 • TICKET-456"
 - **Smart Deduplication**: Prevents duplicates while preserving thread context and links over list-only entries
 - **Resolution Patterns**: Detects "resolved", "fixed", "ready", "deployed" keywords in threads
+ - **UI "block" Exceptions (NEW)**: Avoid false positives from UI/technical terms such as "add block dialog", "create block panel", "code block", etc. Implemented via `TextAnalyzer.hasUIBlockContext()` and applied in both pattern and context analyzers.
+ - **Ad-blocker Guard (NEW)**: Mentions of "ad blocker/ad-blocker" are ignored unless a nearby release/deploy/prod context is present (`TextAnalyzer.isAdBlockerNonReleaseContext()`).
 
 ### 💬 **Channel Conventions**
 - **Analysis Source**: `functional-testing` (default)

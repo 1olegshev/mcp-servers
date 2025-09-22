@@ -5,6 +5,7 @@
  */
 
 import { SlackClient } from '../../../clients/slack-client.js';
+import { TextAnalyzer } from '../../../utils/analyzers.js';
 import { SlackMessage, Issue, JiraTicketInfo } from '../../../types/index.js';
 import { IContextAnalyzer, TicketContext } from '../models/service-interfaces.js';
 
@@ -157,8 +158,13 @@ export class ContextAnalyzerService implements IContextAnalyzer {
       // If message mentions this ticket specifically
       if (mentionsTicket) {
         // EARLY EXIT: Skip blocking detection if this is UI context
-        if (this.hasUIBlockContext(message.text || '')) {
+        if (TextAnalyzer.hasUIBlockContext(message.text || '')) {
           continue; // Skip this message, it's UI terminology
+        }
+
+        // EARLY EXIT: Ignore ad blocker mentions unless tied to release context
+        if (TextAnalyzer.isAdBlockerNonReleaseContext(message.text || '')) {
+          continue;
         }
 
         // Check for blocking indicators
@@ -303,22 +309,7 @@ export class ContextAnalyzerService implements IContextAnalyzer {
    * Check if text contains UI/technical "block" terminology that should NOT be treated as blockers
    * Prevents false positives from UI component names like "add block dialog"
    */
-  private hasUIBlockContext(text: string): boolean {
-    const lowerText = text.toLowerCase();
-    
-    const uiBlockPatterns = [
-      /add\s+block\s+dialog/i,
-      /create\s+block\s+panel/i,
-      /block\s+dialog/i,
-      /block\s+panel/i,
-      /code\s+block/i,
-      /text\s+block/i,
-      /content\s+block/i,
-      /building\s+block/i
-    ];
-
-    return uiBlockPatterns.some(pattern => pattern.test(lowerText));
-  }
+  // moved UI context detection to TextAnalyzer.hasUIBlockContext
 
   /**
    * Check if a message text indicates hotfix context

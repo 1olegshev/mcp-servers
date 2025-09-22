@@ -254,6 +254,15 @@ interface TestAnalysis {
 type JiraTickets = string[];   // Array of "PROJ-123" format tickets
 ```
 
+### 🔧 Analyzer Helpers (NEW)
+```typescript
+// UI/technical "block" context guard (avoid false positives)
+TextAnalyzer.hasUIBlockContext(text: string): boolean
+
+// Ad-blocker guard: ignore unless tied to release/deploy/prod context
+TextAnalyzer.isAdBlockerNonReleaseContext(text: string): boolean
+```
+
 ### 🏗️ Pipeline Service Interface Types
 ```typescript
 // Service contracts for the modular issue detection pipeline

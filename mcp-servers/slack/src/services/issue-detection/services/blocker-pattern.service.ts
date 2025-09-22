@@ -22,7 +22,12 @@ export class BlockerPatternService implements IPatternMatcher {
     const lowerText = text.toLowerCase();
 
     // EARLY EXIT: Check for UI context patterns that should NOT be treated as blockers
-    if (this.hasUIBlockContext(text)) {
+    if (TextAnalyzer.hasUIBlockContext(text)) {
+      return false;
+    }
+
+    // EARLY EXIT: Ignore "ad blocker" mentions unless tied to release/deploy context
+    if (TextAnalyzer.isAdBlockerNonReleaseContext(text)) {
       return false;
     }
 
@@ -207,22 +212,7 @@ export class BlockerPatternService implements IPatternMatcher {
    * Check if text contains UI/technical "block" terminology that should NOT be treated as blockers
    * Prevents false positives from UI component names like "add block dialog"
    */
-  private hasUIBlockContext(text: string): boolean {
-    const lowerText = text.toLowerCase();
-    
-    const uiBlockPatterns = [
-      /add\s+block\s+dialog/i,
-      /create\s+block\s+panel/i,
-      /block\s+dialog/i,
-      /block\s+panel/i,
-      /code\s+block/i,
-      /text\s+block/i,
-      /content\s+block/i,
-      /building\s+block/i
-    ];
-
-    return uiBlockPatterns.some(pattern => pattern.test(lowerText));
-  }
+  // moved UI context detection to TextAnalyzer.hasUIBlockContext
 
   /**
    * Check if a message text indicates hotfix context

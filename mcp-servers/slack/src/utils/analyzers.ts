@@ -153,4 +153,38 @@ export class TextAnalyzer {
 
     return details;
   }
+
+  /**
+   * Detect UI/technical "block" terminology that should NOT be treated as release blockers
+   * Centralized helper to avoid false positives from UI component names
+   */
+  static hasUIBlockContext(text: string): boolean {
+    const lowerText = (text || '').toLowerCase();
+
+    const uiBlockPatterns = [
+      /add\s+block\s+dialog/i,
+      /create\s+block\s+panel/i,
+      /block\s+dialog/i,
+      /block\s+panel/i,
+      /code\s+block/i,
+      /text\s+block/i,
+      /content\s+block/i,
+      /building\s+block/i
+    ];
+
+    return uiBlockPatterns.some(pattern => pattern.test(lowerText));
+  }
+
+  /**
+   * Guarded exception for mentions of ad blocker/ad-blocker that should not count as blockers
+   * Only ignore when there is NO nearby release/deploy/prod context
+   */
+  static isAdBlockerNonReleaseContext(text: string): boolean {
+    const lowerText = (text || '').toLowerCase();
+    const mentionsAdBlocker = /\bad[-\s]?blockers?\b/i.test(lowerText);
+    if (!mentionsAdBlocker) return false;
+
+    const hasReleaseContext = /\b(release|deploy(?:ment)?|prod(?:uction)?)\b/i.test(lowerText);
+    return !hasReleaseContext;
+  }
 }

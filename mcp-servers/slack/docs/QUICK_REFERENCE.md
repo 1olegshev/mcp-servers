@@ -223,6 +223,16 @@ const isBot = TextAnalyzer.isTestBot(message);
 
 // Analyze issue severity
 const { isBlocking, isCritical } = TextAnalyzer.analyzeIssueSeverity(message.text);
+
+// NEW: Guard against UI/technical "block" terminology
+if (TextAnalyzer.hasUIBlockContext(message.text)) {
+  // skip blocking classification
+}
+
+// NEW: Ignore ad-blocker mentions unless tied to release context
+if (TextAnalyzer.isAdBlockerNonReleaseContext(message.text)) {
+  // skip blocking classification
+}
 ```
 
 ### 🧵 Thread Detection & Issue Analysis
@@ -237,6 +247,9 @@ const issues = await issueDetector.findIssues(channel, date, 'both');
 // Returns: blocking, critical, and blocking_resolved issues
 // Pipeline: Messages → Parse → Analyze → Deduplicate → Results
 // Features: Smart deduplication, implicit blocking detection, thread analysis
+// Thread analyzer per-test statuses include (updated):
+// ✅ resolved/not blocking; 🔄 assigned/rerun/fix; ℹ️ acknowledged/explained/needs repro; 🔍 root cause; ⚠️ flakey; 🛠️ test update required; ❌ still failing
+// Section summary shows breakdowns when not resolved, e.g. "🔄 assigned 2, rerun 1 • ℹ️ ack 1"
 
 // Pipeline components (for advanced usage):
 import { SlackMessageService } from '../services/issue-detection/services/slack-message.service.js';
