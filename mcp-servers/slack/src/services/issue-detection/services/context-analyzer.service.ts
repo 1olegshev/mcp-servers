@@ -156,6 +156,11 @@ export class ContextAnalyzerService implements IContextAnalyzer {
 
       // If message mentions this ticket specifically
       if (mentionsTicket) {
+        // EARLY EXIT: Skip blocking detection if this is UI context
+        if (this.hasUIBlockContext(message.text || '')) {
+          continue; // Skip this message, it's UI terminology
+        }
+
         // Check for blocking indicators
         const blockingPatterns = [
           /\bblocker\b/i,
@@ -292,6 +297,27 @@ export class ContextAnalyzerService implements IContextAnalyzer {
       console.error('Failed to get thread permalink:', error);
       return undefined;
     }
+  }
+
+  /**
+   * Check if text contains UI/technical "block" terminology that should NOT be treated as blockers
+   * Prevents false positives from UI component names like "add block dialog"
+   */
+  private hasUIBlockContext(text: string): boolean {
+    const lowerText = text.toLowerCase();
+    
+    const uiBlockPatterns = [
+      /add\s+block\s+dialog/i,
+      /create\s+block\s+panel/i,
+      /block\s+dialog/i,
+      /block\s+panel/i,
+      /code\s+block/i,
+      /text\s+block/i,
+      /content\s+block/i,
+      /building\s+block/i
+    ];
+
+    return uiBlockPatterns.some(pattern => pattern.test(lowerText));
   }
 
   /**
