@@ -117,23 +117,23 @@ export class IssueDetectorService {
       output += `Issues that block release deployment\n\n`;
 
       blockingIssues.forEach((issue, i) => {
-        output += `*${i + 1}. Blocker*\n`;
+        output += `*${i + 1}. Blocker*`;
 
-        if (issue.tickets.length > 0) {
-          // Safety dedup at presentation time
-          const uniq = new Map(issue.tickets.map(t => [t.key, t]));
-          output += `🎫 *Tickets*: `;
-          const ticketLinks = Array.from(uniq.values()).map(ticket => {
-            return ticket.url ? `<${ticket.url}|${ticket.key}>` : ticket.key;
-          });
-          output += ticketLinks.join(', ') + '\n';
+        const uniq = new Map(issue.tickets.map(t => [t.key, t]));
+        const ticketLinks = Array.from(uniq.values()).map(ticket => {
+          return ticket.url ? `<${ticket.url}|${ticket.key}>` : ticket.key;
+        });
+
+        if (ticketLinks.length > 0) {
+          output += ` • ${ticketLinks.join(', ')}`;
         }
 
         if (issue.permalink) {
-          const label = issue.hasThread ? 'Open thread' : 'Open message';
-          output += `🔗 <${issue.permalink}|${label}>\n`;
+          const label = issue.hasThread ? 'thread' : 'message';
+          output += ` • <${issue.permalink}|${label}>`;
         }
 
+        output += '\n';
         output += '\n---\n\n';
       });
     }

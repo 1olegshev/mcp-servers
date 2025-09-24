@@ -28,7 +28,10 @@ export class TestAnalyzerService {
 
   constructor(private slackClient: SlackClient) {
     this.threads = new ThreadAnalyzerService(slackClient);
-    this.formatter = new TestReportFormatter((summary?: string) => this.parseFailedTestsFromSummary(summary));
+    this.formatter = new TestReportFormatter(
+      (summary?: string) => this.parseFailedTestsFromSummary(summary),
+      this.threads
+    );
   }
 
   async analyzeTestResults(

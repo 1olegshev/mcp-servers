@@ -28,11 +28,11 @@ describe('IssueDetectionPipeline', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockSlackClient.searchMessages = jest.fn();
-    mockSlackClient.getMessageDetails = jest.fn();
-    mockSlackClient.getThreadReplies = jest.fn();
-    mockSlackClient.getPermalink = jest.fn();
-    mockSlackClient.resolveConversation = jest.fn();
+    mockSlackClient.searchMessages.mockReset();
+    mockSlackClient.getMessageDetails.mockReset();
+    mockSlackClient.getThreadReplies.mockReset();
+    mockSlackClient.getPermalink.mockReset();
+    mockSlackClient.resolveConversation.mockReset();
 
     messageService = new SlackMessageService(mockSlackClient as any);
     patternService = new BlockerPatternService();

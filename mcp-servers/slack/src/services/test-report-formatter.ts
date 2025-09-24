@@ -1,7 +1,11 @@
 import { TestResult } from '../types/index.js';
+import { ThreadAnalyzerService } from './thread-analyzer.js';
 
 export class TestReportFormatter {
-  constructor(private parseFailedTestsFromSummary: (summary?: string) => string[]) {}
+  constructor(
+    private parseFailedTestsFromSummary: (summary?: string) => string[],
+    private threadAnalyzer: ThreadAnalyzerService
+  ) {}
 
   format(testResults: TestResult[], getTestTypeFromMessage: (t: TestResult) => string, date?: string): string {
     let output = `🔬 Latest Test Results:\n`;
@@ -80,44 +84,47 @@ export class TestReportFormatter {
       output += `❓ *AUTO TEST STATUS: NO RECENT RESULTS*\n`;
     } else {
       const allPassed = present.every(t => t.status === 'passed');
-      const isResolvedFailure = (t: TestResult): boolean => {
-        if (t.status !== 'failed' || !t.hasReview) return false;
-        const summary = (t.reviewSummary || '').toLowerCase();
-        const notBlocking = summary.includes('not blocking');
-        const rerunSuccess = summary.includes('manual rerun successful') || /rerun successful|resolved|fixed/.test(summary);
-        return notBlocking || rerunSuccess;
+
+      const suiteHasUnclear = (t: TestResult): boolean => {
+        if (!t.perTestStatus || !Object.keys(t.perTestStatus).length) return false;
+        const counts = this.threadAnalyzer.classifyStatuses(t.perTestStatus);
+        return counts.unclearCount > 0;
       };
-      
-            const hasUnderInvestigation = (t: TestResult): boolean => {
-        if (t.status !== 'failed' || !t.hasReview) return false;
+
+      const suiteHasInvestigating = (t: TestResult): boolean => {
+        if (!t.perTestStatus || !Object.keys(t.perTestStatus).length) return false;
+        const counts = this.threadAnalyzer.classifyStatuses(t.perTestStatus);
+        if (counts.investigatingCount > 0) return true;
         const summary = (t.reviewSummary || '').toLowerCase();
         const statusNote = (t.statusNote || '').toLowerCase();
-        // Check if any individual test is marked as investigating (with or without emoji)
-        const hasInvestigatingTests = t.perTestStatus ? Object.values(t.perTestStatus).some(status => {
-          const statusLower = status.toLowerCase();
-          // Be more explicit about what we're looking for
-          return statusLower.includes('investigating') || 
-                 statusLower.includes('🔍') ||
-                 statusLower === 'unclear';  // Treat unclear as investigation needed
-        }) : false;
-        return summary.includes('under investigation') || 
-               statusNote.includes('under investigation') ||
-               summary.includes('looking into') || 
-               statusNote.includes('looking into') ||
-               hasInvestigatingTests;
+        return summary.includes('under investigation') || statusNote.includes('under investigation') ||
+               summary.includes('looking into') || statusNote.includes('looking into');
       };
-      
-      const allResolvedOrPassed = present.every(
-        t => t.status === 'passed' || isResolvedFailure(t)
-      );
-      
-      const someUnderInvestigation = present.some(hasUnderInvestigation);
-      
+
+      const suiteFullyCleared = (t: TestResult): boolean => {
+        if (t.status === 'passed') return true;
+        if (t.status !== 'failed' || !t.hasReview) return false;
+        if (!t.perTestStatus || !Object.keys(t.perTestStatus).length) return false;
+        const counts = this.threadAnalyzer.classifyStatuses(t.perTestStatus);
+        const summary = (t.reviewSummary || '').toLowerCase();
+        const statusNote = (t.statusNote || '').toLowerCase();
+        const notBlockingSignal = summary.includes('not blocking') || statusNote.includes('not blocking');
+        const rerunSuccess = summary.includes('manual rerun successful') || statusNote.includes('manual rerun successful');
+        const allTestsCleared = counts.resolvedCount > 0 && counts.resolvedCount === Object.keys(t.perTestStatus).length;
+        return (notBlockingSignal || rerunSuccess) && allTestsCleared;
+      };
+
+      const anyUnclear = present.some(suiteHasUnclear);
+      const anyInvestigating = present.some(suiteHasInvestigating);
+      const allCleared = present.every(suiteFullyCleared);
+
       if (allPassed && present.length >= 2) {
         output += `✅ *AUTO TEST STATUS: ALL PASSED*\n`;
-      } else if (someUnderInvestigation && present.length >= 1) {
+      } else if (anyUnclear) {
+        output += `❓ *AUTO TEST STATUS: NEEDS REVIEW*\n`;
+      } else if (anyInvestigating) {
         output += `🔍 *AUTO TEST STATUS: UNDER INVESTIGATION*\n`;
-      } else if (allResolvedOrPassed && present.length >= 2) {
+      } else if (allCleared && present.length >= 2) {
         output += `✅ *AUTO TEST STATUS: RESOLVED - NOT BLOCKING*\n`;
       } else {
         output += `⚠️ *AUTO TEST STATUS: ATTENTION REQUIRED*\n`;

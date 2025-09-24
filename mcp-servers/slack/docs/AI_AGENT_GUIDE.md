@@ -171,7 +171,7 @@ if (legacyBot) return new WebClient(legacyBot);
   - ℹ️ acknowledged, 🔍 root cause identified, ℹ️ explained
   - ℹ️ needs repro, ⚠️ flakey/env-specific, 🛠️ test update required (e.g., selector/button moved)
   - ❌ still failing, ♻️ revert planned/applied, 🔍 investigating
-- **Section summary (UPDATED)**: Shows concise breakdowns when not resolved, e.g. `🔄 assigned 2, rerun 1 • ℹ️ ack 1`. Resolved/not-blocking are counted explicitly; informational states do not inflate resolved counts.
+- **Section summary (UPDATED)**: Breaks down every status bucket (resolved, in-progress, informational, investigating, unclear) so unresolved items stay visible. Example: `✅ 2 resolved/not blocking • 🔄 assigned 1 • ❓ needs review 1`.
 
 #### 📋 **test-report-formatter.ts** (NEW)
 - **Purpose**: Format test results with improved styling and clarity
@@ -180,7 +180,7 @@ if (legacyBot) return new WebClient(legacyBot);
   - Multi-line formatting: "✅" on first line, "All tests passed" on second
   - Clear spacing between test sections
   - Detailed failure information with review context
-- **Output**: Slack-friendly markdown with enhanced readability
+- **Output**: Slack-friendly markdown with enhanced readability. Suites that have unresolved/unclear tests now surface a "Needs Review" status until every failure is explicitly cleared.
 
 #### 📊 **release-analyzer.ts**
 - **Purpose**: Generate comprehensive release readiness decisions
