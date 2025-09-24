@@ -149,10 +149,12 @@ describe('BlockerPatternService', () => {
     });
 
     it('should detect complex resolution patterns', () => {
-      const text = 'Fix is ready for deployment';
+      const text = 'Issue resolved and fixed. Patch deployed successfully';
       const keywords = service.extractResolutionKeywords(text);
 
-      expect(keywords).toContain('ready');
+      expect(keywords).toContain('resolved');
+      expect(keywords).toContain('fixed');
+      expect(keywords).toContain('deployed');
     });
   });
 });

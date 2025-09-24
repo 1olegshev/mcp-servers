@@ -26,7 +26,7 @@ export class TextAnalyzer {
   static analyzeIssueSeverity(text: string): { isBlocking: boolean; isCritical: boolean } {
     const lower = (text || '').toLowerCase();
     
-    const blockingKeywords = ['blocker', 'blocking', 'release blocker', 'blocks release', 'block release'];
+    const blockingKeywords = ['blocker', 'blocking', 'release blocker', 'blocks release', 'block release', 'hotfix'];
     const isBlocking = blockingKeywords.some(keyword => lower.includes(keyword));
 
     // Negation-aware critical detection (avoid false positives)

@@ -192,7 +192,6 @@ export class BlockerPatternService implements IPatternMatcher {
     const resolutionPatterns = [
       { pattern: /\bresolved\b/i, keyword: 'resolved' },
       { pattern: /\bfixed\b/i, keyword: 'fixed' },
-      { pattern: /\bready\b/i, keyword: 'ready' },
       { pattern: /\bdeployed\b/i, keyword: 'deployed' },
       { pattern: /not.*blocking/i, keyword: 'not blocking' },
       { pattern: /no.*longer.*blocking/i, keyword: 'no longer blocking' },

@@ -46,8 +46,27 @@ export class SmartDeduplicatorService implements IDeduplicator {
     if (issues.length === 0) return null;
     if (issues.length === 1) return issues[0];
 
+    const severityRank = (issue: Issue): number => {
+      if (issue.type === 'blocking') return 0;
+      if (issue.type === 'blocking_resolved') return 1;
+      return 2;
+    };
+
+    const minSeverity = Math.min(...issues.map(severityRank));
+    let candidates = issues.filter(issue => severityRank(issue) === minSeverity);
+
+    if (candidates.length === 0) {
+      candidates = issues;
+    }
+
+    // Hotfix commitment takes precedence when severity is equal
+    const hotfixCandidates = candidates.filter(issue => issue.hotfixCommitment);
+    if (hotfixCandidates.length > 0) {
+      candidates = hotfixCandidates;
+    }
+
     // Priority 1: Issues with thread context and permalinks
-    const withThreadAndPermalink = issues.filter(
+    const withThreadAndPermalink = candidates.filter(
       issue => issue.hasThread && issue.permalink
     );
     if (withThreadAndPermalink.length > 0) {
@@ -55,7 +74,7 @@ export class SmartDeduplicatorService implements IDeduplicator {
     }
 
     // Priority 2: Issues with thread context only
-    const withThreadOnly = issues.filter(
+    const withThreadOnly = candidates.filter(
       issue => issue.hasThread && !issue.permalink
     );
     if (withThreadOnly.length > 0) {
@@ -63,7 +82,7 @@ export class SmartDeduplicatorService implements IDeduplicator {
     }
 
     // Priority 3: Issues with permalinks only
-    const withPermalinkOnly = issues.filter(
+    const withPermalinkOnly = candidates.filter(
       issue => !issue.hasThread && issue.permalink
     );
     if (withPermalinkOnly.length > 0) {
@@ -71,7 +90,7 @@ export class SmartDeduplicatorService implements IDeduplicator {
     }
 
     // Priority 4: List-only issues (no thread, no permalink)
-    const listOnly = issues.filter(
+    const listOnly = candidates.filter(
       issue => !issue.hasThread && !issue.permalink
     );
     if (listOnly.length > 0) {
@@ -79,7 +98,7 @@ export class SmartDeduplicatorService implements IDeduplicator {
     }
 
     // Fallback: just return the first one
-    return issues[0];
+    return candidates[0];
   }
 
   /**

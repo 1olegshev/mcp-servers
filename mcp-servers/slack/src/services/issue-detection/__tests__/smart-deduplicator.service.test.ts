@@ -13,13 +13,20 @@ describe('SmartDeduplicatorService', () => {
   });
 
   describe('deduplicateWithPriority', () => {
-    const createMockIssue = (id: string, type: 'blocking' | 'critical', hasThread = false, hasPermalink = false) => ({
+    const createMockIssue = (
+      id: string,
+      type: 'blocking' | 'critical' | 'blocking_resolved',
+      hasThread = false,
+      hasPermalink = false,
+      hotfixCommitment = false
+    ) => ({
       type,
       text: `Issue ${id}`,
       tickets: [{ key: `PROJ-${id}`, url: `https://example.com/PROJ-${id}` }],
       timestamp: `123456789${id}`,
       hasThread,
-      permalink: hasPermalink ? `https://slack.com/${id}` : undefined
+      permalink: hasPermalink ? `https://slack.com/${id}` : undefined,
+      hotfixCommitment
     });
 
     it('should prioritize thread context over list-only issues', () => {
@@ -64,6 +71,17 @@ describe('SmartDeduplicatorService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0]).toBe(oldThreadIssue); // Thread context has higher priority
+    });
+
+    it('should keep list-only hotfix blockers even without thread context', () => {
+      const hotfixIssue = createMockIssue('4', 'blocking', false, false, true);
+      const criticalIssue = createMockIssue('4', 'critical', false, false, false);
+
+      const result = service.deduplicateWithPriority([criticalIssue, hotfixIssue]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBe(hotfixIssue);
+      expect(result[0].hotfixCommitment).toBe(true);
     });
   });
 

@@ -28,6 +28,12 @@ describe('IssueDetectionPipeline', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    mockSlackClient.searchMessages = jest.fn();
+    mockSlackClient.getMessageDetails = jest.fn();
+    mockSlackClient.getThreadReplies = jest.fn();
+    mockSlackClient.getPermalink = jest.fn();
+    mockSlackClient.resolveConversation = jest.fn();
+
     messageService = new SlackMessageService(mockSlackClient as any);
     patternService = new BlockerPatternService();
     contextService = new ContextAnalyzerService(mockSlackClient as any);
@@ -78,6 +84,25 @@ describe('IssueDetectionPipeline', () => {
       expect(result).toHaveLength(1);
       expect(result[0].type).toBe('blocking');
       expect(result[0].tickets[0].key).toBe('PROJ-123');
+    });
+
+    it('should keep list-only hotfix blockers even when fix is ready', async () => {
+      const listMessage = {
+        ts: '1234567890',
+        text: 'We will hotfix PROJ-456 (fix ready)'
+      };
+
+      mockSlackClient.searchMessages.mockResolvedValue([listMessage]);
+      mockSlackClient.getMessageDetails.mockResolvedValue(listMessage);
+      mockSlackClient.getThreadReplies.mockResolvedValue([]);
+      mockSlackClient.getPermalink.mockResolvedValue(undefined);
+
+      const result = await pipeline.detectIssues('test-channel', '2025-01-01');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].type).toBe('blocking');
+      expect(result[0].tickets[0].key).toBe('PROJ-456');
+      expect(result[0].permalink).toBeUndefined();
     });
 
     it('should deduplicate issues with same ticket', async () => {

@@ -106,6 +106,7 @@ export class ContextAnalyzerService implements IContextAnalyzer {
           timestamp: parentTimestamp,
           hasThread: threadMessages.length > 1,
           permalink,
+          hotfixCommitment: blockingAnalysis.hasHotfixCommitment
         } as Issue);
       }
     }
@@ -120,9 +121,10 @@ export class ContextAnalyzerService implements IContextAnalyzer {
     threadMessages: SlackMessage[],
     ticketKey: string,
     channel: string
-  ): Promise<{ isBlocking: boolean; isResolved: boolean }> {
+  ): Promise<{ isBlocking: boolean; isResolved: boolean; hasHotfixCommitment: boolean }> {
     let isBlocking = false;
     let isResolved = false;
+    let hasHotfixCommitment = false;
 
     // BUSINESS RULE: Hotfixes are ONLY made for blockers
     // Check for hotfix context first - if ticket is in hotfix list, it's automatically blocking
@@ -134,6 +136,7 @@ export class ContextAnalyzerService implements IContextAnalyzer {
       if (mentionsTicket && this.isHotfixContext(text)) {
         isBlocking = true;
         foundInHotfixContext = true;
+        hasHotfixCommitment = true;
         break; // Found in hotfix context, no need to check further
       }
     }
@@ -179,12 +182,12 @@ export class ContextAnalyzerService implements IContextAnalyzer {
         ];
 
         const hasBlockingKeyword = blockingPatterns.some(pattern => pattern.test(text));
+        const hasHotfixCommitmentMatch = /(\(\s*fix\s+ready\s*\)|\bwe\s+will\s+hotfix\b)/i.test(text);
 
         // Check for resolution keywords
         const resolutionPatterns = [
           /\bresolved\b/i,
           /\bfixed\b/i,
-          /\bready\b/i,
           /\bdeployed\b/i,
           /not.*blocking/i,
           /no.*longer.*blocking/i,
@@ -193,10 +196,14 @@ export class ContextAnalyzerService implements IContextAnalyzer {
 
         const hasResolutionKeyword = resolutionPatterns.some(pattern => pattern.test(text));
 
-        if (hasBlockingKeyword) {
+        if (hasBlockingKeyword || hasHotfixCommitmentMatch) {
           isBlocking = true;
+          if (hasHotfixCommitmentMatch) {
+            hasHotfixCommitment = true;
+          }
         }
-        if (hasResolutionKeyword) {
+
+        if (hasResolutionKeyword && !hasHotfixCommitmentMatch && !hasHotfixCommitment) {
           isResolved = true;
           // BUSINESS RULE: Don't override hotfix context - hotfixes are always blockers even if marked "ready"
           if (!foundInHotfixContext) {
@@ -211,7 +218,7 @@ export class ContextAnalyzerService implements IContextAnalyzer {
       isBlocking = this.checkForGeneralBlockingStatements(threadMessages, ticketKey);
     }
 
-    return { isBlocking, isResolved };
+    return { isBlocking, isResolved, hasHotfixCommitment };
   }
 
   /**

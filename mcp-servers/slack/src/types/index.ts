@@ -48,6 +48,7 @@ export interface Issue {
   hasThread: boolean;
   resolutionText?: string; // Add field for resolution context
   permalink?: string; // Slack permalink to parent message/thread
+  hotfixCommitment?: boolean;
 }
 
 export interface JiraTicketInfo {
