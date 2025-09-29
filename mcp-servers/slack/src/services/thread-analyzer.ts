@@ -63,7 +63,8 @@ export class ThreadAnalyzerService {
     const normalizedFailed = Array.from(new Set(failedTests.map(normalizeTest)));
 
     const perTestStatus: Record<string, string> = {};
-    
+    const perTestPriority: Record<string, number> = {};
+
     // Process messages chronologically - most recent status wins
     const allMessages = [originalMessage, ...replies];
     for (const message of allMessages) {
@@ -74,21 +75,23 @@ export class ThreadAnalyzerService {
         
         if (testPattern.test(messageText)) {
           const context = messageText.toLowerCase();
-          let note = '';
+          const isHuman = !!message.user && !(message as any).bot_id;
+          let bestStatus = '';
+          let bestPriority = -1;
           
           // Define status patterns with priorities (check most specific first)
           const statusPatterns = [
-            { pattern: /passed\s+on\s+rerun/, status: '✅ resolved' },
+            { pattern: /manual\s+re[-\s]?run\s+successful|passed\s+on\s+re[-\s]?run|re[-\s]?run\s+passed/, status: '✅ resolved' },
             { pattern: /(passed|passing|fixed|resolved|green)/, status: '✅ resolved' },
-            { pattern: /not\s+blocking/, status: '✅ not blocking' },
+            { pattern: /\bnot\s+blocking\b/, status: '✅ not blocking' },
             // Active progression states
             { pattern: /(on\s+me|my\s+responsibility|i'll\s+take|assigned\s+to\s+me)/, status: '🔄 assigned' },
-            { pattern: /(retry|rerun)/, status: '🔄 rerun in progress' },
+            { pattern: /(?:started|starting|kicked(?:\s+off)?|triggered|triggering)\s+(?:a\s+)?re[-\s]?run|re[-\s]?running\s+(?:now|again|today)|rerun\s+in\s+progress/, status: '🔄 rerun in progress' },
             { pattern: /(fix.*review|should\s+be\s+fixed)/, status: '🔄 fix in progress' },
             // Context/acknowledgement states
             { pattern: /(known\s+issue|already\s+aware|acknowledged)/, status: 'ℹ️ acknowledged' },
             { pattern: /(cannot\s+repro(duce)?|can[’'`]t\s+repro(duce)?|cant\s+repro(duce)?)/, status: 'ℹ️ needs repro' },
-            { pattern: /(passes|works)\s+(for\s+me\s+)?locally/, status: '⚠️ flakey/env-specific' },
+            { pattern: /(passes|works)\s+(for\s+me\s+)?locally|\bflak(?:e|y)\b/, status: '⚠️ flakey/env-specific' },
             { pattern: /(test.*updat|button.*moved|selector.*chang|selector.*moved)/, status: '🛠️ test update required' },
             { pattern: /(root\s+cause|specific.*fix|technical.*reason)/, status: '🔍 root cause identified' },
             { pattern: /(explained|setup\s+issue|test\s+issue|just.*issue)/, status: 'ℹ️ explained' },
@@ -98,17 +101,35 @@ export class ThreadAnalyzerService {
             { pattern: /still\s+failing/, status: '❌ still failing' }
           ];
           
-          // Find first matching pattern
+          // Find best matching pattern by priority
           for (const { pattern, status } of statusPatterns) {
             if (pattern.test(context)) {
-              note = status;
-              break;
+              let priority = this.getStatusPriority(status);
+              if (!isHuman) {
+                priority = Math.min(priority, 30);
+              }
+              if (priority > bestPriority) {
+                bestPriority = priority;
+                bestStatus = status;
+              }
             }
           }
           
-          // Most recent status wins - overwrite any previous status for this test
-          if (note) perTestStatus[t] = note;
+          if (bestStatus) {
+            const currentPriority = perTestPriority[t] ?? -1;
+            if (bestPriority >= currentPriority) {
+              perTestStatus[t] = bestStatus;
+              perTestPriority[t] = bestPriority;
+            }
+          }
         }
+      }
+    }
+
+    for (const testName of normalizedFailed) {
+      if (!perTestStatus[testName]) {
+        perTestStatus[testName] = '❓ needs review';
+        perTestPriority[testName] = this.getStatusPriority('❓ needs review');
       }
     }
 
@@ -124,7 +145,7 @@ export class ThreadAnalyzerService {
     let summary = '';
     let statusNote = '';
     if (failedTests.length > 0) {
-      summary += `Failed tests: ${failedTests.slice(0, 3).join(', ')}${failedTests.length > 3 ? '...' : ''}. `;
+      summary += `Failed tests: ${failedTests.join(', ')}.`;
     }
 
     if (outcomes.rerunSuccessful) {
@@ -174,13 +195,21 @@ export class ThreadAnalyzerService {
     let processed = text;
     try { processed = decodeURIComponent(text); } catch {}
     processed = processed.replace(/%2F/gi, '/');
-    const fileRegex = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)\.[jt]sx?)/gi;
+    const fileRegex = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)?\.[jt]sx?)/gi;
     const matches = processed.match(fileRegex) || [];
-    const normalized = matches.map(m => {
+    const normalized = matches
+      .map(m => {
       const cleaned = m.replace(/^\/*/, '');
       const base = cleaned.replace(/^.*[\\\/]/, '');
       return base.replace(/^2f+/i, '');
-    });
+      })
+      .map(name => {
+        // Heuristic: treat names that lack spec/test suffix in the thread as E2E specs
+        if (!/(?:_spec|\.spec|\.test|_test)\.[jt]sx?$/i.test(name)) {
+          return name.replace(/\.[tj]sx?$/i, '_spec$&');
+        }
+        return name;
+      });
     return Array.from(new Set(normalized));
   }
 
@@ -301,5 +330,27 @@ export class ThreadAnalyzerService {
     }
 
     return counts;
+  }
+
+  private getStatusPriority(status: string): number {
+    const priorities: Record<string, number> = {
+      '❌ still failing': 90,
+      '🚫 blocker': 90,
+      '♻️ revert planned/applied': 80,
+      '🔄 rerun in progress': 70,
+      '🔄 fix in progress': 60,
+      '🔄 assigned': 55,
+      '🔍 investigating': 50,
+      '⚠️ flakey/env-specific': 45,
+      '🛠️ test update required': 45,
+      'ℹ️ needs repro': 40,
+      '🔍 root cause identified': 40,
+      'ℹ️ acknowledged': 35,
+      'ℹ️ explained': 35,
+      '✅ resolved': 85,
+      '✅ not blocking': 80,
+      '❓ needs review': 30,
+    };
+    return priorities[status] ?? 20;
   }
 }
