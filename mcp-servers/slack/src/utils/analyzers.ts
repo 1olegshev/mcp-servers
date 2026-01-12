@@ -169,7 +169,18 @@ export class TextAnalyzer {
       /code\s+block/i,
       /text\s+block/i,
       /content\s+block/i,
-      /building\s+block/i
+      /building\s+block/i,
+      /answer\s+blocks?/i,           // Kahoot answer buttons UI
+      /question\s+blocks?/i,         // Kahoot question UI
+      /image\s+blocks?/i,            // Image blocks in editor
+      /video\s+blocks?/i,            // Video blocks in editor
+      /slide\s+blocks?/i,            // Slide blocks
+      /layout\s+blocks?/i,           // Layout blocks
+      /blocks?\s+editor/i,           // Block editor references
+      /blocks?\s+component/i,        // Block component references
+      /insert\s+blocks?/i,           // Insert block action
+      /delete\s+blocks?/i,           // Delete block action
+      /labels\s+of\s+.*blocks/i      // "labels of answer blocks" pattern
     ];
 
     return uiBlockPatterns.some(pattern => pattern.test(lowerText));

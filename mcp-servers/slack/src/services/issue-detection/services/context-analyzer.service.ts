@@ -171,17 +171,21 @@ export class ContextAnalyzerService implements IContextAnalyzer {
         }
 
         // Check for blocking indicators
-        const blockingPatterns = [
+        // Note: "blocks" alone is too broad (matches UI "answer blocks", etc.)
+        // Only match "blocks" when combined with release/deploy/prod context
+        const explicitBlockerPatterns = [
           /\bblocker\b/i,
           /\bblocking\b/i,
           /release\s*blocker/i,
-          /\bblocks?\b/i,
           /no.?go/i,
           /@test.managers/i,
           /hotfix/i
         ];
 
-        const hasBlockingKeyword = blockingPatterns.some(pattern => pattern.test(text));
+        // "blocks" requires release context (consistent with blocker-pattern.service)
+        const releaseContext = /(\bblock(s)?\b|\bblocking\b).*\b(release|deploy(?:ment)?|prod(?:uction)?)\b/i.test(text);
+
+        const hasBlockingKeyword = explicitBlockerPatterns.some(pattern => pattern.test(text)) || releaseContext;
         const hasHotfixCommitmentMatch = /(\(\s*fix\s+ready\s*\)|\bwe\s+will\s+hotfix\b)/i.test(text);
 
         // Check for resolution keywords
