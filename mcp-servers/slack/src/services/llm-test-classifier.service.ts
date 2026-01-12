@@ -158,7 +158,7 @@ For each test, pick ONE status:
 - still_failing (confirmed still broken)
 - unclear (no info)
 
-Reply with JSON only:
+Output ONLY this JSON format:
 {"tests":[{"name":"test","status":"resolved","confidence":80}]}`;
   }
 
@@ -167,7 +167,7 @@ Reply with JSON only:
    */
   private async callOllama(prompt: string): Promise<string> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90000); // 90 second timeout for full thread analysis
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
     try {
       const response = await fetch(`${this.ollamaUrl}/api/generate`, {
@@ -179,8 +179,9 @@ Reply with JSON only:
           stream: false,
           options: {
             temperature: 0.3,
-            num_predict: 1024
-          }
+            num_predict: 512
+          },
+          think: false  // Disable thinking for fast responses
         }),
         signal: controller.signal
       });
@@ -192,7 +193,13 @@ Reply with JSON only:
       }
 
       const data = await response.json();
-      return data.response || '';
+      // Qwen3 puts thinking in separate field, actual output in response
+      // Prefer response (contains JSON), fall back to thinking if response empty
+      if (data.response && data.response.trim()) {
+        return data.response;
+      }
+      // If response is empty, check thinking field (token limit reached mid-think)
+      return data.thinking || '';
     } catch (error) {
       clearTimeout(timeout);
       throw error;
@@ -216,25 +223,76 @@ Reply with JSON only:
   }
 
   /**
+   * Extract balanced JSON from text - handles nested braces correctly
+   */
+  private extractBalancedJSON(text: string): string | null {
+    const start = text.indexOf('{');
+    if (start === -1) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < text.length; i++) {
+      const char = text[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (char === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === '{') depth++;
+      else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          return text.substring(start, i + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Parse LLM response and extract test statuses
    */
   private parseResponse(response: string, failedTests: string[]): ThreadClassificationResult {
-    // Remove thinking tokens if present
+    // Remove thinking tokens if present (Qwen3 adds <think>...</think> blocks)
     let cleanResponse = response;
-    const thinkMatch = response.match(/<think>([\s\S]*?)<\/think>/);
-    if (thinkMatch) {
-      cleanResponse = response.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+    cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+    // Handle unclosed <think> tags - take everything after it
+    const thinkStart = cleanResponse.indexOf('<think>');
+    if (thinkStart !== -1) {
+      cleanResponse = cleanResponse.substring(thinkStart + 7); // Skip past <think>
     }
 
-    // Try to extract JSON from response
-    const jsonMatch = cleanResponse.match(/\{[\s\S]*"tests"[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error('No JSON found in LLM response');
+    // Trim whitespace and remove markdown code block markers
+    cleanResponse = cleanResponse.trim();
+    cleanResponse = cleanResponse.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '');
+
+    // Use balanced bracket extraction for proper JSON parsing
+    const jsonStr = this.extractBalancedJSON(cleanResponse);
+
+    if (!jsonStr) {
+      console.error('No JSON found in LLM response. Raw response:', response.substring(0, 300));
       return this.fallbackClassification(failedTests);
     }
 
     try {
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonStr);
       const perTestStatus: Record<string, TestStatusClassification> = {};
 
       if (Array.isArray(parsed.tests)) {

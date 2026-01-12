@@ -17,6 +17,7 @@ export interface OllamaResponse {
   model: string;
   created_at: string;
   response: string;
+  thinking?: string; // Qwen3 may put thinking in separate field
   done: boolean;
 }
 
@@ -138,8 +139,9 @@ Think briefly, then output your answer as JSON:
         stream: false,
         options: {
           temperature: 0.3, // Low temperature for consistent classification
-          num_predict: 400  // Allow for thinking + JSON response
-        }
+          num_predict: 256
+        },
+        think: false  // Disable Qwen3 thinking for faster response
       }),
       signal: AbortSignal.timeout(30000) // 30 second timeout
     });
@@ -149,7 +151,12 @@ Think briefly, then output your answer as JSON:
     }
 
     const data = await response.json() as OllamaResponse;
-    return data.response;
+    // Qwen3 puts thinking in separate field, actual output in response
+    // Prefer response (contains JSON), fall back to thinking if response empty
+    if (data.response && data.response.trim()) {
+      return data.response;
+    }
+    return data.thinking || '';
   }
 
   /**
