@@ -16,6 +16,27 @@ npm run dev
 echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | node dist/server.js
 ```
 
+## 🤖 LLM Classification Setup (Ollama + Qwen3)
+
+```bash
+# Install Ollama (macOS)
+brew install ollama
+
+# Pull the Qwen3 14B model (~9GB download)
+ollama pull qwen3:14b
+
+# Start Ollama server (usually auto-starts on macOS)
+ollama serve
+
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Test LLM classification manually
+ollama run qwen3:14b "Is 'PROJ-123 is blocking the release' a release blocker? Answer as JSON."
+```
+
+**Note**: The cron job (`scripts/cron-release-wrapper.sh`) automatically starts Ollama when your Mac wakes, waits for it to be ready, and stops it after the job completes.
+
 ## 🔧 File Modification Quick Reference
 
 ### ➕ Adding a New Tool
@@ -235,6 +256,29 @@ if (TextAnalyzer.isAdBlockerNonReleaseContext(message.text)) {
 }
 ```
 
+### 🤖 LLM Classification
+```typescript
+import { LLMClassifierService } from '../services/issue-detection/services/llm-classifier.service.js';
+
+// Create classifier (uses Ollama with Qwen3 14B)
+const classifier = new LLMClassifierService();
+
+// Check if Ollama is available
+if (await classifier.isAvailable()) {
+  // Classify a message
+  const result = await classifier.classifyMessage(message, threadContext);
+
+  if (result.isBlocker) {
+    console.log(`Blocker confirmed (${result.confidence}%): ${result.reasoning}`);
+  } else {
+    console.log(`Not a blocker: ${result.reasoning}`);
+  }
+}
+
+// In pipeline tests, disable LLM to avoid timeouts
+pipeline.setLLMClassification(false);
+```
+
 ### 🧵 Thread Detection & Issue Analysis
 ```typescript
 import { IssueDetectorService } from '../services/issue-detector.js';
@@ -245,8 +289,8 @@ const issueDetector = new IssueDetectorService(slackClient);
 // Analyze issues with advanced thread support
 const issues = await issueDetector.findIssues(channel, date, 'both');
 // Returns: blocking, critical, and blocking_resolved issues
-// Pipeline: Messages → Parse → Analyze → Deduplicate → Results
-// Features: Smart deduplication, implicit blocking detection, thread analysis
+// Pipeline: Messages → Parse → Analyze → Deduplicate → LLM Classify → Results
+// Features: Smart deduplication, implicit blocking detection, thread analysis, LLM filtering
 // Thread analyzer per-test statuses include (updated):
 // ✅ resolved/not blocking; 🔄 assigned/rerun/fix; ℹ️ acknowledged/explained/needs repro; 🔍 root cause; ⚠️ flakey; 🛠️ test update required; ❌ still failing
 // Section summary shows breakdowns when not resolved, e.g. "🔄 assigned 2, rerun 1 • ℹ️ ack 1"
@@ -382,6 +426,34 @@ if (message.thread_ts || (message.reply_count || 0) > 0) {
 This quick reference provides the most common patterns you'll need when working with this codebase!
 
 ## 🔧 Troubleshooting Quick Fixes
+
+### LLM Classification Issues
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+# Should return JSON with available models
+
+# Start Ollama manually
+ollama serve
+
+# Check if qwen3:14b is installed
+ollama list
+# Should show qwen3:14b
+
+# Re-pull model if corrupted
+ollama pull qwen3:14b
+
+# Test LLM directly
+ollama run qwen3:14b "Hello, respond with just 'OK'"
+
+# Check cron log for Ollama startup issues
+tail -50 logs/cron-auto-release.log | grep -i ollama
+```
+
+**Common Issues**:
+- **Timeouts in tests**: Call `pipeline.setLLMClassification(false)` in test setup
+- **Empty responses**: LLM thinking tokens are handled automatically
+- **Ollama not starting on cron**: Check `logs/ollama-cron.log` for errors
 
 ### ESM Module Issues
 ```bash

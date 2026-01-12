@@ -28,7 +28,8 @@ src/
 │   │   │   ├── slack-message.service.ts       # 🌐 Slack API communication
 │   │   │   ├── blocker-pattern.service.ts     # 🕵️ Text pattern matching
 │   │   │   ├── context-analyzer.service.ts    # 🧵 Thread analysis & context
-│   │   │   └── smart-deduplicator.service.ts  # 🔄 Duplicate detection
+│   │   │   ├── smart-deduplicator.service.ts  # 🔄 Duplicate detection
+│   │   │   └── llm-classifier.service.ts      # 🤖 LLM-based blocker classification (Ollama)
 │   │   ├── models/
 │   │   │   ├── service-interfaces.ts          # 📋 Service contracts
 │   │   │   ├── ticket-context.model.ts        # 🎫 Ticket data models
@@ -118,9 +119,10 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Benefits**: Improved maintainability, testability, and extensibility
 
 ##### 📊 **Pipeline Orchestrator**
-- **File**: `pipeline/issue-detection.pipeline.ts` (225 lines)
+- **File**: `pipeline/issue-detection.pipeline.ts`
 - **Purpose**: Coordinates data flow between all services
-- **Pattern**: Raw Messages → Parse → Analyze → Deduplicate → Issues
+- **Pattern**: Raw Messages → Parse → Analyze → Deduplicate → LLM Classify → Issues
+- **Note**: Deduplication happens BEFORE LLM classification to minimize expensive LLM calls
 - **Error Handling**: Comprehensive error aggregation and reporting
 
 ##### 🌐 **Slack Message Service**
@@ -146,6 +148,21 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Purpose**: Intelligent duplicate detection and prioritization
 - **Methods**: `deduplicateWithPriority()`
 - **Features**: Context-aware deduplication, thread vs list priority, ticket merging
+
+##### 🤖 **LLM Classifier Service** (NEW)
+- **File**: `services/llm-classifier.service.ts`
+- **Purpose**: Semantic classification of messages as release blockers using local LLM
+- **Methods**: `classifyMessage()`, `isAvailable()`, `buildPrompt()`, `parseResponse()`
+- **LLM Backend**: Ollama with Qwen3 14B model (local, runs on Mac)
+- **Features**:
+  - Semantic understanding of blocker context (vs. regex-only)
+  - Handles Qwen3 thinking tokens (`<think>...</think>`)
+  - Returns confidence scores (0-100%) and reasoning
+  - Graceful fallback to keyword matching when Ollama unavailable
+  - Lazy initialization (only connects when first needed)
+- **Classification Criteria**:
+  - ✅ Blocker: "blocker", "release blocker", "hotfix needed", "no go for release"
+  - ❌ Not Blocker: "Is this a blocker?", "answer blocks", "ad-blocker", "not blocking"
 
 ##### 📋 **Service Interfaces & Models**
 - **File**: `models/service-interfaces.ts` (87 lines)
@@ -237,10 +254,11 @@ Environment → SlackAuth → WebClient → API Requests
 
 ### 3. **Issue Detection Pipeline Flow**
 ```
-Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyzerService → SmartDeduplicatorService → Issues
-       ↓              ↓                       ↓                       ↓                       ↓              ↓
-    Search API    Message Filtering      Text Patterns        Thread Analysis      Duplicate Removal    Final Report
+Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyzerService → SmartDeduplicatorService → LLMClassifierService → Issues
+       ↓              ↓                       ↓                       ↓                       ↓                        ↓                ↓
+    Search API    Message Filtering      Text Patterns        Thread Analysis      Duplicate Removal      Semantic Filter      Final Report
 ```
+**Note**: Deduplication happens BEFORE LLM classification to minimize expensive LLM calls (10 messages about same ticket = 1 LLM call, not 10).
 
 ### 4. **Detailed Pipeline Data Flow**
 ```
@@ -263,7 +281,13 @@ Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyz
    → Prioritize thread context over list-only entries
    → Merge ticket information intelligently
 
-5. IssueDetectionPipeline.detectIssues()
+5. LLMClassifierService.classifyMessage() (if Ollama available)
+   → Semantically classify each deduplicated issue
+   → Filter false positives (UI "blocks", questions, ad-blockers)
+   → Return confidence scores and reasoning
+   → Fallback to keyword matching if Ollama unavailable
+
+6. IssueDetectionPipeline.detectIssues()
    → Orchestrate entire flow
    → Aggregate errors and results
    → Return structured issue analysis
@@ -300,6 +324,20 @@ Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyz
 2. **Update review detection** in `analyzeThreadReplies()`
 3. **Add new status types** to `perTestStatus` mapping
 4. **Update formatter** to display new status information
+
+### ✅ **Working with LLM Classification**
+1. **Prerequisites**: Install Ollama and pull model:
+   ```bash
+   brew install ollama
+   ollama pull qwen3:14b
+   ollama serve  # Start server (or it auto-starts on macOS)
+   ```
+2. **Testing LLM classification**: The classifier auto-detects Ollama availability
+3. **Modifying classification logic**: Edit `services/llm-classifier.service.ts`
+4. **Adjusting prompts**: Update `buildPrompt()` method for different classification criteria
+5. **Adding new classification types**: Extend `ClassificationResult` interface
+6. **Disabling LLM in tests**: Call `pipeline.setLLMClassification(false)` in test setup
+7. **Cron job**: The wrapper script (`scripts/cron-release-wrapper.sh`) auto-starts Ollama when Mac wakes
 
 ### ✅ **Modifying Authentication**
 - **File**: `auth/slack-auth.ts`
@@ -424,8 +462,13 @@ The system analyzes multiple factors to determine release readiness:
 - **Explicit Blocker Lists**: Detects tickets in structured lists like "Blockers for Monday: • TICKET-123 • TICKET-456"
 - **Smart Deduplication**: Prevents duplicates while preserving thread context and links over list-only entries
 - **Resolution Patterns**: Detects "resolved", "fixed", "ready", "deployed" keywords in threads
- - **UI "block" Exceptions (NEW)**: Avoid false positives from UI/technical terms such as "add block dialog", "create block panel", "code block", etc. Implemented via `TextAnalyzer.hasUIBlockContext()` and applied in both pattern and context analyzers.
- - **Ad-blocker Guard (NEW)**: Mentions of "ad blocker/ad-blocker" are ignored unless a nearby release/deploy/prod context is present (`TextAnalyzer.isAdBlockerNonReleaseContext()`).
+ - **UI "block" Exceptions**: Avoid false positives from UI/technical terms such as "add block dialog", "create block panel", "code block", "answer blocks", etc. Implemented via `TextAnalyzer.hasUIBlockContext()` and applied in both pattern and context analyzers.
+ - **Ad-blocker Guard**: Mentions of "ad blocker/ad-blocker" are ignored unless a nearby release/deploy/prod context is present (`TextAnalyzer.isAdBlockerNonReleaseContext()`).
+ - **LLM Classification (NEW)**: Two-layer detection system:
+   1. **Regex layer**: Fast pattern matching catches obvious cases
+   2. **LLM layer**: Semantic classification filters false positives using Qwen3 14B via local Ollama
+   - Returns confidence scores and reasoning for transparency
+   - Gracefully falls back to regex-only when Ollama unavailable
 
 ### 💬 **Channel Conventions**
 - **Analysis Source**: `functional-testing` (default)
