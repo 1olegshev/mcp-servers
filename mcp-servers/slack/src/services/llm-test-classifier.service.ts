@@ -31,7 +31,7 @@ export class LLMTestClassifierService {
 
   constructor(
     ollamaUrl: string = 'http://localhost:11434',
-    model: string = 'qwen3:14b'
+    model: string = 'qwen3:30b-a3b-instruct-2507-q4_K_M'  // Non-thinking instruct model (July 2025)
   ) {
     this.ollamaUrl = ollamaUrl;
     this.model = model;
@@ -142,24 +142,26 @@ export class LLMTestClassifierService {
       })
     ].join('\n\n');
 
-    // Simpler, more focused prompt for faster response
-    return `What is the status of these test failures based on the thread discussion?
+    // Number the tests for easier reference
+    const numberedTests = failedTests.map((t, i) => `${i + 1}. ${t}`).join('\n');
 
-Tests: ${failedTests.join(', ')}
+    return `Classify each test failure based on the thread discussion.
+
+Failed tests:
+${numberedTests}
 
 Thread:
 ${threadContent}
 
-For each test, pick ONE status:
-- resolved (passed on rerun, fixed)
-- not_blocking (reviewed, ok to release)
-- investigating (looking into it)
-- flakey (passes locally, intermittent)
-- still_failing (confirmed still broken)
-- unclear (no info)
+For EACH test, determine status from replies (e.g., "passes for me" = flakey):
+- resolved: passed on rerun, fixed
+- flakey: passes locally, intermittent
+- investigating: looking into it
+- still_failing: confirmed broken
+- unclear: no relevant info
 
-Output ONLY this JSON format:
-{"tests":[{"name":"test","status":"resolved","confidence":80}]}`;
+Output ONLY valid JSON:
+{"tests":[{"id":1,"status":"flakey","confidence":80}]}`;
   }
 
   /**
@@ -179,9 +181,8 @@ Output ONLY this JSON format:
           stream: false,
           options: {
             temperature: 0.3,
-            num_predict: 512
-          },
-          think: false  // Disable thinking for fast responses
+            num_predict: 512  // Non-thinking model outputs JSON directly
+          }
         }),
         signal: controller.signal
       });
@@ -297,7 +298,14 @@ Output ONLY this JSON format:
 
       if (Array.isArray(parsed.tests)) {
         for (const test of parsed.tests) {
-          const testName = this.matchTestName(test.name, failedTests);
+          // Support both id (1-indexed number) and name (string) formats
+          let testName: string | null = null;
+          if (typeof test.id === 'number' && test.id >= 1 && test.id <= failedTests.length) {
+            testName = failedTests[test.id - 1]; // Convert 1-indexed to 0-indexed
+          } else if (test.name) {
+            testName = this.matchTestName(test.name, failedTests);
+          }
+
           if (testName) {
             perTestStatus[testName] = {
               testName,
