@@ -131,19 +131,14 @@ export class LLMTestClassifierService {
       return parts.filter(Boolean).join(' ');
     };
 
-    // Limit thread content to keep prompt short (faster LLM response)
-    const maxReplies = 8; // Only use last 8 replies
-    const maxTextLen = 300; // Truncate each message
-
-    const truncate = (text: string) =>
-      text.length > maxTextLen ? text.substring(0, maxTextLen) + '...' : text;
-
+    // Include full thread content - there are only 3 test threads total
+    // so we need full context to understand which reply refers to which test
     const threadContent = [
-      `[Bot] ${truncate(collectText(originalMessage))}`,
-      ...replies.slice(-maxReplies).map((r) => {
+      `[Bot] ${collectText(originalMessage)}`,
+      ...replies.map((r) => {
         const isBot = !!(r as any).bot_id;
         const prefix = isBot ? '[Bot]' : '[Human]';
-        return `${prefix} ${truncate(collectText(r))}`;
+        return `${prefix} ${collectText(r)}`;
       })
     ].join('\n\n');
 
@@ -172,7 +167,7 @@ Reply with JSON only:
    */
   private async callOllama(prompt: string): Promise<string> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+    const timeout = setTimeout(() => controller.abort(), 90000); // 90 second timeout for full thread analysis
 
     try {
       const response = await fetch(`${this.ollamaUrl}/api/generate`, {
