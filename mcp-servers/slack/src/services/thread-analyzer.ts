@@ -44,9 +44,11 @@ export class ThreadAnalyzerService {
     channel: string,
     status: string
   ): Promise<{ hasReview: boolean; summary: string; failedTests?: string[]; statusNote?: string; perTestStatus?: Record<string, string>; sectionSummary?: string }> {
-    if (status !== 'failed' || !(message.thread_ts || (message.reply_count || 0) > 0)) {
+    // Skip non-failed tests
+    if (status !== 'failed') {
       return { hasReview: false, summary: '' };
     }
+    // Always analyze failed tests - even if no replies yet, we want to show the failed test names
 
     try {
       const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
@@ -140,10 +142,6 @@ export class ThreadAnalyzerService {
     replies: SlackMessage[],
     originalMessage: SlackMessage
   ): { hasActivity: boolean; summary: string; failedTests: string[]; statusNote: string; perTestStatus: Record<string, string>; sectionSummary: string } {
-    if (replies.length === 0) {
-      return { hasActivity: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {}, sectionSummary: '⏳ Awaiting review' };
-    }
-
     const collectText = (m: SlackMessage) => {
       const parts: string[] = [];
       if (m.text) parts.push(m.text);
@@ -155,16 +153,41 @@ export class ThreadAnalyzerService {
       }
       return parts.filter(Boolean).join(' ');
     };
-    const threadTexts = [collectText(originalMessage), ...replies.map(collectText)];
-    const allText = threadTexts.join(' ').toLowerCase();
 
-    const failedTests = this.extractFailedTestNames(allText);
+    // Extract failed tests from original message even if no replies yet
+    const originalText = collectText(originalMessage);
+    const failedTests = this.extractFailedTestNames(originalText);
     const normalizeTest = (t: string) => t
       .replace(/\.(test|spec)\.[jt]sx?/i, '')
       .replace(/\.[jt]sx?/i, '')
       .replace(/^.*[\/]/, '')
       .trim();
     const normalizedFailed = Array.from(new Set(failedTests.map(normalizeTest)));
+
+    // If no replies, mark all tests as awaiting review
+    if (replies.length === 0) {
+      const perTestStatus: Record<string, string> = {};
+      for (const test of normalizedFailed) {
+        perTestStatus[test] = '⏳ awaiting review';
+      }
+      return {
+        hasActivity: false,
+        summary: '',
+        failedTests: normalizedFailed,
+        statusNote: '',
+        perTestStatus,
+        sectionSummary: `⏳ ${normalizedFailed.length} tests awaiting review`
+      };
+    }
+
+    // Also extract from replies to catch any additional test mentions
+    const threadTexts = [originalText, ...replies.map(collectText)];
+    const allText = threadTexts.join(' ').toLowerCase();
+    const allFailedTests = this.extractFailedTestNames(allText);
+    const allNormalized = Array.from(new Set(allFailedTests.map(normalizeTest)));
+
+    // Use combined list if replies mention additional tests
+    const finalFailed = allNormalized.length > normalizedFailed.length ? allNormalized : normalizedFailed;
 
     const perTestStatus: Record<string, string> = {};
     const perTestPriority: Record<string, number> = {};
@@ -174,7 +197,7 @@ export class ThreadAnalyzerService {
     for (const message of allMessages) {
       const messageText = collectText(message);
       
-      for (const t of normalizedFailed) {
+      for (const t of finalFailed) {
         const testPattern = new RegExp(`${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.ts)?`, 'i');
         
         if (testPattern.test(messageText)) {
@@ -230,7 +253,7 @@ export class ThreadAnalyzerService {
       }
     }
 
-    for (const testName of normalizedFailed) {
+    for (const testName of finalFailed) {
       if (!perTestStatus[testName]) {
         perTestStatus[testName] = '❓ needs review';
         perTestPriority[testName] = this.getStatusPriority('❓ needs review');
@@ -288,7 +311,7 @@ export class ThreadAnalyzerService {
     return {
       hasActivity: true,
       summary: summary.trim(),
-      failedTests: normalizedFailed,
+      failedTests: finalFailed,
       statusNote: statusNote.trim(),
       perTestStatus,
       sectionSummary,
@@ -299,21 +322,41 @@ export class ThreadAnalyzerService {
     let processed = text;
     try { processed = decodeURIComponent(text); } catch {}
     processed = processed.replace(/%2F/gi, '/');
+
+    // Pattern 1: Files with extensions (.ts, .js, etc.)
     const fileRegex = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)?\.[jt]sx?)/gi;
-    const matches = processed.match(fileRegex) || [];
-    const normalized = matches
+    const fileMatches = processed.match(fileRegex) || [];
+
+    // Pattern 2: "Specs for Review:" section - lines with "path/file.ts  N failed test"
+    const specsForReviewMatches: string[] = [];
+    const specsForReviewRegex = /([\w\-\/]+(?:_spec)?\.tsx?)\s+\d+\s+failed/gi;
+    let match;
+    while ((match = specsForReviewRegex.exec(processed)) !== null) {
+      if (match[1]) {
+        specsForReviewMatches.push(match[1]);
+      }
+    }
+
+    const allMatches = [...fileMatches, ...specsForReviewMatches];
+
+    // Blocklist of common false positives (not test names)
+    const blocklist = /^(index|config|setup|utils?|helpers?|types?|constants?|models?|services?|playwright|cypress|jest|mocha|failed|passed|test|tests|spec|specs)$/i;
+
+    const normalized = allMatches
       .map(m => {
-      const cleaned = m.replace(/^\/*/, '');
-      const base = cleaned.replace(/^.*[\\\/]/, '');
-      return base.replace(/^2f+/i, '');
+        const cleaned = m.replace(/^\/*/, '');
+        const base = cleaned.replace(/^.*[\\\/]/, '');
+        return base.replace(/^2f+/i, '');
       })
-      .map(name => {
-        // Heuristic: treat names that lack spec/test suffix in the thread as E2E specs
-        if (!/(?:_spec|\.spec|\.test|_test)\.[jt]sx?$/i.test(name)) {
-          return name.replace(/\.[tj]sx?$/i, '_spec$&');
-        }
-        return name;
+      .map(name => name.replace(/\.[tj]sx?$/i, '')) // Remove extension for consistency
+      .filter(name => {
+        // Filter out short names and blocklisted terms
+        if (name.length < 5) return false;
+        const baseName = name.replace(/_spec$|_test$|\.spec$|\.test$/i, '');
+        if (blocklist.test(baseName)) return false;
+        return true;
       });
+
     return Array.from(new Set(normalized));
   }
 
