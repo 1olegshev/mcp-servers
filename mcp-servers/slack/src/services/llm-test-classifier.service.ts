@@ -131,47 +131,40 @@ export class LLMTestClassifierService {
       return parts.filter(Boolean).join(' ');
     };
 
+    // Limit thread content to keep prompt short (faster LLM response)
+    const maxReplies = 8; // Only use last 8 replies
+    const maxTextLen = 300; // Truncate each message
+
+    const truncate = (text: string) =>
+      text.length > maxTextLen ? text.substring(0, maxTextLen) + '...' : text;
+
     const threadContent = [
-      `[Bot] ${collectText(originalMessage)}`,
-      ...replies.map((r, i) => {
+      `[Bot] ${truncate(collectText(originalMessage))}`,
+      ...replies.slice(-maxReplies).map((r) => {
         const isBot = !!(r as any).bot_id;
         const prefix = isBot ? '[Bot]' : '[Human]';
-        return `${prefix} ${collectText(r)}`;
+        return `${prefix} ${truncate(collectText(r))}`;
       })
     ].join('\n\n');
 
-    const testList = failedTests.map(t => `- ${t}`).join('\n');
+    // Simpler, more focused prompt for faster response
+    return `What is the status of these test failures based on the thread discussion?
 
-    return `Analyze this test failure thread and classify each failed test's status.
+Tests: ${failedTests.join(', ')}
 
-FAILED TESTS:
-${testList}
-
-THREAD CONTENT:
+Thread:
 ${threadContent}
 
-For each failed test, determine its status from these categories:
-- "✅ resolved" - Test passed on rerun, fix deployed, or explicitly marked as fixed
-- "✅ not blocking" - Reviewed and determined not to block release
-- "🔄 assigned" - Someone took ownership ("on me", "I'll handle")
-- "🔄 rerun in progress" - Rerun triggered/started but no result yet
-- "🔄 fix in progress" - Fix being worked on or in review
-- "🔍 investigating" - Being looked into but no conclusion yet
-- "⚠️ flakey/env-specific" - Passes locally, intermittent, or environment issue
-- "🛠️ test update required" - Selector changed, button moved, test needs update
-- "ℹ️ acknowledged" - Known issue, team aware
-- "ℹ️ explained" - Root cause identified and explained
-- "❌ still failing" - Confirmed still failing after rerun/fix attempt
-- "❓ needs review" - No clear status from thread, needs human attention
+For each test, pick ONE status:
+- resolved (passed on rerun, fixed)
+- not_blocking (reviewed, ok to release)
+- investigating (looking into it)
+- flakey (passes locally, intermittent)
+- still_failing (confirmed still broken)
+- unclear (no info)
 
-Think about each test's status based on the thread discussion, then output JSON:
-{
-  "tests": [
-    {"name": "test_name", "status": "✅ resolved", "confidence": 85, "reasoning": "Passed on rerun per message 3"},
-    ...
-  ],
-  "summary": "2 resolved, 1 investigating"
-}`;
+Reply with JSON only:
+{"tests":[{"name":"test","status":"resolved","confidence":80}]}`;
   }
 
   /**
@@ -179,7 +172,7 @@ Think about each test's status based on the thread discussion, then output JSON:
    */
   private async callOllama(prompt: string): Promise<string> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+    const timeout = setTimeout(() => controller.abort(), 45000); // 45 second timeout
 
     try {
       const response = await fetch(`${this.ollamaUrl}/api/generate`, {
@@ -212,6 +205,22 @@ Think about each test's status based on the thread discussion, then output JSON:
   }
 
   /**
+   * Map simple status strings to emoji-prefixed versions
+   */
+  private mapStatus(status: string): string {
+    const statusMap: Record<string, string> = {
+      'resolved': '✅ resolved',
+      'not_blocking': '✅ not blocking',
+      'investigating': '🔍 investigating',
+      'flakey': '⚠️ flakey/env-specific',
+      'flaky': '⚠️ flakey/env-specific',
+      'still_failing': '❌ still failing',
+      'unclear': '❓ needs review',
+    };
+    return statusMap[status.toLowerCase()] || status;
+  }
+
+  /**
    * Parse LLM response and extract test statuses
    */
   private parseResponse(response: string, failedTests: string[]): ThreadClassificationResult {
@@ -239,7 +248,7 @@ Think about each test's status based on the thread discussion, then output JSON:
           if (testName) {
             perTestStatus[testName] = {
               testName,
-              status: test.status || '❓ needs review',
+              status: this.mapStatus(test.status || 'unclear'),
               confidence: typeof test.confidence === 'number' ? test.confidence : 50,
               reasoning: test.reasoning || ''
             };
