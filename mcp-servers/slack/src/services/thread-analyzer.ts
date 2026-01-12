@@ -56,8 +56,9 @@ export class ThreadAnalyzerService {
       // First, do regex-based analysis to extract failed tests
       const regexAnalysis = this.analyzeThreadContent(replies, message);
 
-      // Try LLM classification if enabled and we have failed tests
-      if (this.useLLMClassification && regexAnalysis.failedTests.length > 0) {
+      // Try LLM classification if enabled, we have failed tests, AND there are replies to analyze
+      // Skip LLM if no replies - nothing for it to classify, keep "awaiting review" status
+      if (this.useLLMClassification && regexAnalysis.failedTests.length > 0 && replies.length > 0) {
         await this.ensureLLMInitialized();
 
         if (this.llmClassifier && this.useLLMClassification) {
