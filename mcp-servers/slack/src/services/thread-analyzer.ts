@@ -1,9 +1,43 @@
 import { SlackClient } from '../clients/slack-client.js';
 import { SlackMessage } from '../types/index.js';
 import { extractAllMessageText } from '../utils/message-extractor.js';
+import { LLMTestClassifierService, TestStatusClassification } from './llm-test-classifier.service.js';
 
 export class ThreadAnalyzerService {
+  private llmClassifier: LLMTestClassifierService | null = null;
+  private llmInitialized: boolean = false;
+  private useLLMClassification: boolean = true;
+
   constructor(private slackClient: SlackClient) {}
+
+  /**
+   * Enable/disable LLM classification
+   */
+  setLLMClassification(enabled: boolean): void {
+    this.useLLMClassification = enabled;
+  }
+
+  /**
+   * Lazily initialize the LLM classifier
+   */
+  private async ensureLLMInitialized(): Promise<void> {
+    if (this.llmInitialized) return;
+    this.llmInitialized = true;
+
+    try {
+      this.llmClassifier = new LLMTestClassifierService();
+      const available = await this.llmClassifier.isAvailable();
+      if (available) {
+        console.error('LLM test classifier initialized (Ollama available)');
+      } else {
+        console.error('LLM test classifier disabled (Ollama not available)');
+        this.useLLMClassification = false;
+      }
+    } catch (error) {
+      console.error('Failed to initialize LLM test classifier:', error);
+      this.useLLMClassification = false;
+    }
+  }
 
   async checkForReview(
     message: SlackMessage,
@@ -16,20 +50,90 @@ export class ThreadAnalyzerService {
 
     try {
       const replies = await this.slackClient.getThreadReplies(channel, message.ts!);
-      const analysis = this.analyzeThreadContent(replies, message);
+
+      // First, do regex-based analysis to extract failed tests
+      const regexAnalysis = this.analyzeThreadContent(replies, message);
+
+      // Try LLM classification if enabled and we have failed tests
+      if (this.useLLMClassification && regexAnalysis.failedTests.length > 0) {
+        await this.ensureLLMInitialized();
+
+        if (this.llmClassifier && this.useLLMClassification) {
+          try {
+            const llmResult = await this.llmClassifier.classifyThread(
+              message,
+              replies,
+              regexAnalysis.failedTests
+            );
+
+            if (llmResult.usedLLM && Object.keys(llmResult.perTestStatus).length > 0) {
+              // LLM succeeded - merge results, preferring LLM for high-confidence classifications
+              const mergedPerTestStatus = this.mergeClassifications(
+                regexAnalysis.perTestStatus,
+                llmResult.perTestStatus
+              );
+
+              const sectionSummary = this.calculateSectionStatus(mergedPerTestStatus);
+
+              console.error(`LLM test classification complete: ${llmResult.overallSummary}`);
+
+              return {
+                hasReview: regexAnalysis.hasActivity,
+                summary: regexAnalysis.summary,
+                failedTests: regexAnalysis.failedTests,
+                statusNote: regexAnalysis.statusNote,
+                perTestStatus: mergedPerTestStatus,
+                sectionSummary,
+              };
+            }
+          } catch (llmError) {
+            console.error('LLM test classification failed, using regex results:', llmError);
+          }
+        }
+      }
+
+      // Fall back to regex-only results
       return {
-        hasReview: analysis.hasActivity,
-        summary: analysis.summary,
-        failedTests: analysis.failedTests,
-        statusNote: analysis.statusNote,
-        perTestStatus: analysis.perTestStatus,
-        sectionSummary: analysis.sectionSummary,
+        hasReview: regexAnalysis.hasActivity,
+        summary: regexAnalysis.summary,
+        failedTests: regexAnalysis.failedTests,
+        statusNote: regexAnalysis.statusNote,
+        perTestStatus: regexAnalysis.perTestStatus,
+        sectionSummary: regexAnalysis.sectionSummary,
       };
     } catch (error) {
       console.error('Failed to check test review:', error);
     }
 
     return { hasReview: false, summary: '', failedTests: [], statusNote: '', perTestStatus: {}, sectionSummary: '⏳ Awaiting review' };
+  }
+
+  /**
+   * Merge regex and LLM classifications
+   * LLM takes precedence for high-confidence results or when regex is unclear
+   */
+  private mergeClassifications(
+    regexStatus: Record<string, string>,
+    llmStatus: Record<string, TestStatusClassification>
+  ): Record<string, string> {
+    const merged: Record<string, string> = { ...regexStatus };
+
+    for (const [testName, llmResult] of Object.entries(llmStatus)) {
+      const regexResult = regexStatus[testName];
+
+      // LLM takes precedence if:
+      // 1. Regex result is unclear ("❓ needs review")
+      // 2. LLM has high confidence (>= 70%)
+      // 3. Regex didn't find this test
+      const regexIsUnclear = !regexResult || regexResult.includes('needs review') || regexResult.includes('unclear');
+      const llmIsConfident = llmResult.confidence >= 70;
+
+      if (regexIsUnclear || llmIsConfident) {
+        merged[testName] = llmResult.status;
+      }
+    }
+
+    return merged;
   }
 
   private analyzeThreadContent(

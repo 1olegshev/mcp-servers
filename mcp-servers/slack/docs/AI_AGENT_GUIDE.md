@@ -170,25 +170,35 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Includes**: `ISlackMessageService`, `IPatternMatcher`, `IContextAnalyzer`, `IDeduplicator`
 - **Benefits**: Dependency injection support, compile-time type checking
 
-#### 🧪 **test-analyzer.ts**  
+#### 🧪 **test-analyzer.ts**
 - **Purpose**: Analyze automated test results and coordinate analysis pipeline
 - **Key Methods**: `analyzeTestResults()`, orchestrates analysis workflow
 - **Detection**: Bot message patterns, test status via bot IDs
 - **Dependencies**: ThreadAnalyzerService, TestReportFormatter
 - **Output**: Coordinates between detection, thread analysis, and formatting
 
-#### 🧵 **thread-analyzer.ts** (NEW)
+#### 🧵 **thread-analyzer.ts**
 - **Purpose**: Dedicated thread review status analysis
-- **Key Methods**: `checkForReview()`, `analyzeThreadReplies()`
+- **Key Methods**: `checkForReview()`, `analyzeThreadReplies()`, `mergeClassifications()`
 - **Analysis**: Manual rerun results, blocking status, PR/revert mentions
 - **Output**: Structured review summaries with per-test status
-- **Per-test status categories (UPDATED)**:
+- **LLM Integration (NEW)**: Uses `LLMTestClassifierService` for semantic classification when Ollama available
+- **Merge Logic**: LLM results take precedence when regex is unclear or LLM has high confidence (≥70%)
+
+#### 🤖 **llm-test-classifier.service.ts** (NEW)
+- **Purpose**: LLM-based classification of test failure statuses from thread replies
+- **Methods**: `classifyThread()`, `isAvailable()`, `buildPrompt()`, `parseResponse()`
+- **LLM Backend**: Ollama with Qwen3 14B (same as blocker classifier)
+- **Classification Categories**:
   - ✅ resolved, ✅ not blocking
   - 🔄 assigned, 🔄 rerun in progress, 🔄 fix in progress
-  - ℹ️ acknowledged, 🔍 root cause identified, ℹ️ explained
-  - ℹ️ needs repro, ⚠️ flakey/env-specific, 🛠️ test update required (e.g., selector/button moved)
-  - ❌ still failing, ♻️ revert planned/applied, 🔍 investigating
-- **Section summary (UPDATED)**: Breaks down every status bucket (resolved, in-progress, informational, investigating, unclear) so unresolved items stay visible. Example: `✅ 2 resolved/not blocking • 🔄 assigned 1 • ❓ needs review 1`.
+  - 🔍 investigating, ℹ️ acknowledged, ℹ️ explained
+  - ⚠️ flakey/env-specific, 🛠️ test update required
+  - ❌ still failing, ❓ needs review
+- **Features**:
+  - Full thread summarization (entire thread sent to LLM)
+  - Per-test classification with confidence scores
+  - Graceful fallback to regex when Ollama unavailable
 
 #### 📋 **test-report-formatter.ts** (NEW)
 - **Purpose**: Format test results with improved styling and clarity
