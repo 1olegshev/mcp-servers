@@ -61,7 +61,10 @@ export class IssueDetectionPipeline {
 
   /**
    * Main pipeline execution method
-   * Orchestrates the flow: Messages → Parse → Analyze → LLM Classify → Deduplicate → Result
+   * Orchestrates the flow: Messages → Parse → Analyze → Deduplicate → LLM Classify → Result
+   *
+   * Note: Deduplication happens BEFORE LLM classification to minimize expensive LLM calls.
+   * If we have 10 messages about PROJ-123, we deduplicate to 1 first, then call LLM once.
    */
   async detectIssues(channel: string, date: string): Promise<Issue[]> {
     const startTime = Date.now();
@@ -76,11 +79,11 @@ export class IssueDetectionPipeline {
       // Step 3: Analyze tickets in context (threads)
       const analyzedIssues = await this.analyzeTicketsInContext(parsedTickets, rawMessages);
 
-      // Step 4: LLM Classification (filter false positives)
-      const llmFilteredIssues = await this.applyLLMClassification(analyzedIssues, rawMessages);
+      // Step 4: Deduplicate and prioritize issues FIRST (reduces LLM calls)
+      const deduplicatedIssues = this.deduplicator.deduplicateWithPriority(analyzedIssues);
 
-      // Step 5: Deduplicate and prioritize issues
-      const finalIssues = this.deduplicator.deduplicateWithPriority(llmFilteredIssues);
+      // Step 5: LLM Classification (filter false positives on deduplicated set)
+      const finalIssues = await this.applyLLMClassification(deduplicatedIssues, rawMessages);
 
       const processingTime = Date.now() - startTime;
       console.error(`Pipeline completed in ${processingTime}ms: ${finalIssues.length} issues found`);
