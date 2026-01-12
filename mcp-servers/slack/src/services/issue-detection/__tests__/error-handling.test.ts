@@ -35,6 +35,7 @@ describe('Error Handling and Edge Cases', () => {
         new ContextAnalyzerService(mockClient),
         new SmartDeduplicatorService()
       );
+      pipeline.setLLMClassification(false); // Disable LLM in tests
 
       await expect(pipeline.detectIssues('test-channel', '2025-01-01'))
         .rejects.toThrow('Issue detection pipeline failed: All Slack API searches failed');
@@ -53,6 +54,7 @@ describe('Error Handling and Edge Cases', () => {
         new ContextAnalyzerService(mockClient),
         new SmartDeduplicatorService()
       );
+      pipeline.setLLMClassification(false); // Disable LLM in tests
 
       // Should still process successful searches
       const result = await pipeline.detectIssues('test-channel', '2025-01-01');
@@ -68,6 +70,7 @@ describe('Error Handling and Edge Cases', () => {
         new ContextAnalyzerService(mockClient),
         new SmartDeduplicatorService()
       );
+      pipeline.setLLMClassification(false); // Disable LLM in tests
 
       await expect(pipeline.detectIssues('test-channel', '2025-01-01'))
         .rejects.toThrow('Issue detection pipeline failed: All Slack API searches failed');
@@ -141,6 +144,7 @@ describe('Error Handling and Edge Cases', () => {
         new ContextAnalyzerService(mockClient),
         new SmartDeduplicatorService()
       );
+      pipeline.setLLMClassification(false); // Disable LLM in tests
 
       mockClient.searchMessages.mockResolvedValue([]);
       mockClient.getMessageDetails.mockResolvedValue({ ts: '123', text: 'test' });
@@ -166,6 +170,7 @@ describe('Error Handling and Edge Cases', () => {
         new ContextAnalyzerService(mockClient),
         new SmartDeduplicatorService()
       );
+      pipeline.setLLMClassification(false); // Disable LLM in tests
 
       mockClient.searchMessages.mockResolvedValue([]);
 
@@ -199,6 +204,7 @@ describe('Error Handling and Edge Cases', () => {
         new ContextAnalyzerService(mockClient),
         new SmartDeduplicatorService()
       );
+      pipeline.setLLMClassification(false); // Disable LLM in tests
 
       const startTime = Date.now();
       const result = await pipeline.detectIssues('test-channel', '2025-01-01');

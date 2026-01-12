@@ -1,7 +1,7 @@
 /**
  * Issue Detection Pipeline
  * Main orchestrator coordinating all services in the pipeline pattern
- * Raw Messages → Parse → Analyze → Deduplicate → Issues
+ * Raw Messages → Parse → Analyze → LLM Classify → Deduplicate → Issues
  */
 
 import { Issue } from '../../../types/index.js';
@@ -10,18 +10,58 @@ import { IPatternMatcher } from '../models/service-interfaces.js';
 import { IContextAnalyzer } from '../models/service-interfaces.js';
 import { IDeduplicator } from '../models/service-interfaces.js';
 import { DetectionResult } from '../models/detection-result.model.js';
+import { LLMClassifierService, ClassificationResult } from '../services/llm-classifier.service.js';
 
 export class IssueDetectionPipeline {
+  private llmClassifier: LLMClassifierService | null = null;
+  private useLLMClassification: boolean = true;
+  private llmInitialized: boolean = false;
+
   constructor(
     private messageService: ISlackMessageService,
     private patternMatcher: IPatternMatcher,
     private contextAnalyzer: IContextAnalyzer,
     private deduplicator: IDeduplicator
-  ) {}
+  ) {
+    // LLM classifier is lazily initialized on first use
+    // This prevents connection attempts during tests
+  }
+
+  /**
+   * Lazily initialize the LLM classifier if Ollama is available
+   * Called only when LLM classification is actually needed
+   */
+  private async ensureLLMClassifierInitialized(): Promise<void> {
+    if (this.llmInitialized) {
+      return;
+    }
+    this.llmInitialized = true;
+
+    try {
+      this.llmClassifier = new LLMClassifierService();
+      const available = await this.llmClassifier.isAvailable();
+      if (available) {
+        console.error('LLM classifier initialized (Ollama available)');
+      } else {
+        console.error('LLM classifier disabled (Ollama not available)');
+        this.useLLMClassification = false;
+      }
+    } catch (error) {
+      console.error('Failed to initialize LLM classifier:', error);
+      this.useLLMClassification = false;
+    }
+  }
+
+  /**
+   * Enable or disable LLM classification
+   */
+  setLLMClassification(enabled: boolean): void {
+    this.useLLMClassification = enabled;
+  }
 
   /**
    * Main pipeline execution method
-   * Orchestrates the flow: Messages → Parse → Analyze → Deduplicate → Result
+   * Orchestrates the flow: Messages → Parse → Analyze → LLM Classify → Deduplicate → Result
    */
   async detectIssues(channel: string, date: string): Promise<Issue[]> {
     const startTime = Date.now();
@@ -36,10 +76,14 @@ export class IssueDetectionPipeline {
       // Step 3: Analyze tickets in context (threads)
       const analyzedIssues = await this.analyzeTicketsInContext(parsedTickets, rawMessages);
 
-      // Step 4: Deduplicate and prioritize issues
-      const finalIssues = this.deduplicator.deduplicateWithPriority(analyzedIssues);
+      // Step 4: LLM Classification (filter false positives)
+      const llmFilteredIssues = await this.applyLLMClassification(analyzedIssues, rawMessages);
+
+      // Step 5: Deduplicate and prioritize issues
+      const finalIssues = this.deduplicator.deduplicateWithPriority(llmFilteredIssues);
 
       const processingTime = Date.now() - startTime;
+      console.error(`Pipeline completed in ${processingTime}ms: ${finalIssues.length} issues found`);
 
       return finalIssues;
 
@@ -48,6 +92,80 @@ export class IssueDetectionPipeline {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Issue detection pipeline failed: ${errorMessage}`);
     }
+  }
+
+  /**
+   * Apply LLM classification to filter false positives
+   * Only runs if Ollama is available and LLM classification is enabled
+   */
+  private async applyLLMClassification(issues: Issue[], rawMessages: any[]): Promise<Issue[]> {
+    // Skip if LLM classification is disabled
+    if (!this.useLLMClassification) {
+      return issues;
+    }
+
+    // Lazily initialize the LLM classifier on first use
+    await this.ensureLLMClassifierInitialized();
+
+    // Skip if classifier not available after initialization attempt
+    if (!this.llmClassifier) {
+      return issues;
+    }
+
+    // Check if Ollama is available
+    const available = await this.llmClassifier.isAvailable();
+    if (!available) {
+      console.error('Ollama not available, skipping LLM classification');
+      return issues;
+    }
+
+    console.error(`Applying LLM classification to ${issues.length} candidate issues...`);
+
+    const filteredIssues: Issue[] = [];
+    const messageMap = new Map<string, any>();
+
+    // Build a map of messages by timestamp for quick lookup
+    for (const msg of rawMessages) {
+      if (msg.ts) messageMap.set(msg.ts, msg);
+    }
+
+    for (const issue of issues) {
+      // Find the original message for this issue
+      const originalMessage = messageMap.get(issue.timestamp) || { text: issue.text };
+
+      // Get thread context if available
+      const threadContext = rawMessages.filter(
+        m => m.thread_ts === issue.timestamp || m.ts === issue.timestamp
+      );
+
+      try {
+        const classification = await this.llmClassifier.classifyMessage(
+          originalMessage,
+          threadContext
+        );
+
+        if (classification.isBlocker) {
+          // LLM confirms this is a blocker
+          console.error(`  ✓ Confirmed blocker: ${issue.tickets.map(t => t.key).join(', ')} (confidence: ${classification.confidence}%)`);
+          filteredIssues.push({
+            ...issue,
+            // Add LLM reasoning to the issue for transparency
+            llmConfidence: classification.confidence,
+            llmReasoning: classification.reasoning
+          } as Issue);
+        } else {
+          // LLM says this is NOT a blocker - filter it out
+          console.error(`  ✗ Filtered out: ${issue.tickets.map(t => t.key).join(', ')} - ${classification.reasoning}`);
+        }
+      } catch (error) {
+        // On error, keep the issue (fail-safe: don't filter on error)
+        console.error(`  ? LLM error for ${issue.tickets.map(t => t.key).join(', ')}, keeping issue`);
+        filteredIssues.push(issue);
+      }
+    }
+
+    console.error(`LLM classification complete: ${filteredIssues.length}/${issues.length} issues confirmed`);
+    return filteredIssues;
   }
 
   /**

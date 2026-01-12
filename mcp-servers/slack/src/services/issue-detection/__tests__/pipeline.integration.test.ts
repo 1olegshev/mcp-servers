@@ -45,6 +45,9 @@ describe('IssueDetectionPipeline', () => {
       contextService,
       deduplicatorService
     );
+
+    // Disable LLM classification in tests to avoid Ollama timeouts
+    pipeline.setLLMClassification(false);
   });
 
   describe('detectIssues', () => {
