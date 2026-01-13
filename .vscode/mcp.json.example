@@ -1,34 +1,25 @@
 {
+  "_comment": "DO NOT add credentials here! Servers load from .env file automatically. See env.example for credential setup.",
   "servers": {
     "jira": {
       "command": "node",
       "args": ["dist/server.js"],
-      "cwd": "/path/to/your/MCP/mcp-servers/jira",
-      "env": {
-        "JIRA_BASE_URL": "https://your-org.atlassian.net",
-        "JIRA_EMAIL": "your-email@company.com",
-        "JIRA_API_TOKEN": "your-jira-api-token-here"
-      }
+      "cwd": "/path/to/your/MCP/mcp-servers/jira"
     },
     "confluence": {
-      "command": "node", 
+      "command": "node",
       "args": ["dist/server.js"],
-      "cwd": "/path/to/your/MCP/mcp-servers/confluence",
-      "env": {
-        "CONFLUENCE_BASE_URL": "https://your-org.atlassian.net",
-        "CONFLUENCE_EMAIL": "your-email@company.com",
-        "CONFLUENCE_API_TOKEN": "your-confluence-api-token-here"
-      }
+      "cwd": "/path/to/your/MCP/mcp-servers/confluence"
     },
     "slack": {
       "command": "node",
       "args": ["dist/server.js"],
-      "cwd": "/path/to/your/MCP/mcp-servers/slack",
-      "env": {
-        "_comment": "Get XOXC and XOXD tokens from browser dev tools: Application -> Cookies -> d= and xoxc-* values",
-        "SLACK_MCP_XOXC_TOKEN": "xoxc-your-session-token-here",
-        "SLACK_MCP_XOXD_TOKEN": "xoxd-your-cookie-data-here"
-      }
+      "cwd": "/path/to/your/MCP/mcp-servers/slack"
+    },
+    "release-coordinator": {
+      "command": "node",
+      "args": ["dist/server.js"],
+      "cwd": "/path/to/your/MCP/mcp-servers/release-coordinator"
     }
   }
 }
