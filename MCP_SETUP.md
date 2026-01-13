@@ -52,13 +52,14 @@ SLACK_MCP_XOXC_TOKEN=xoxc-your-session-token
 SLACK_MCP_XOXD_TOKEN=xoxd-your-cookie-data
 ```
 
-To get these tokens:
-1. **Open Slack in your browser** and log in to your workspace
-2. **Open Developer Tools** (F12)
-3. **Go to Application tab** → **Cookies** → Select your Slack domain
-4. **Copy the required tokens:**
-   - `XOXC`: Look for a cookie starting with `xoxc-`
-   - `XOXD`: Copy the value of the `d` cookie (**use raw value, not URL-encoded**)
+**Quick extraction:**
+1. Open Slack in your browser and log in
+2. Open Developer Tools (F12) → **Application** tab → **Cookies** → `https://app.slack.com`
+3. Find the `d` cookie → this is your **XOXD** token (starts with `xoxd-`)
+4. Go to **Network** tab → reload page → find any `api.slack.com` request
+5. In request headers, find `Authorization: Bearer xoxc-...` → this is your **XOXC** token
+
+For detailed instructions, see [mcp-servers/slack/README.md](mcp-servers/slack/README.md#how-to-extract-tokens)
 
 ### 4. Build and restart
 
