@@ -363,11 +363,11 @@ export class ThreadAnalyzerService {
 
   private calculateSectionStatus(perTestStatus: Record<string, string>): string {
     const statuses = Object.values(perTestStatus);
-    
+
     if (statuses.length === 0) {
       return '⏳ Awaiting review';
     }
-    
+
     const counts = this.classifyStatuses(perTestStatus);
     const {
       resolvedCount,
@@ -383,19 +383,27 @@ export class ThreadAnalyzerService {
       unclearCount,
       investigatingCount,
       blockerCount,
+      stillFailingCount,
+      revertCount,
     } = counts;
-    
+
     if (blockerCount > 0) {
       return `🚫 ${blockerCount} blocker${blockerCount > 1 ? 's' : ''} found`;
     }
-    
+
     const parts: string[] = [];
-    
+
+    // Show critical failures first
+    if (stillFailingCount > 0) {
+      parts.push(`❌ ${stillFailingCount} still failing`);
+    }
+
     if (resolvedCount > 0) {
       parts.push(`✅ ${resolvedCount} resolved/not blocking`);
     }
 
     const progressParts: string[] = [];
+    if (revertCount > 0) progressParts.push(`revert ${revertCount}`);
     if (assignedCount > 0) progressParts.push(`assigned ${assignedCount}`);
     if (rerunCount > 0) progressParts.push(`rerun ${rerunCount}`);
     if (fixProgressCount > 0) progressParts.push(`fix ${fixProgressCount}`);
@@ -446,12 +454,22 @@ export class ThreadAnalyzerService {
       unclearCount: 0,
       investigatingCount: 0,
       blockerCount: 0,
+      stillFailingCount: 0,
+      revertCount: 0,
     };
 
     for (const status of statuses) {
       const l = status.toLowerCase();
       if (l.includes('blocker') && !l.includes('not blocking')) {
         counts.blockerCount++;
+        continue;
+      }
+      if (l.includes('still failing')) {
+        counts.stillFailingCount++;
+        continue;
+      }
+      if (l.includes('revert')) {
+        counts.revertCount++;
         continue;
       }
       if (l.includes('investigating') || l.includes('🔍')) {
