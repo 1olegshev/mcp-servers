@@ -40,14 +40,10 @@ export class IssueDetectionPipeline {
     try {
       this.llmClassifier = new LLMClassifierService();
       const available = await this.llmClassifier.isAvailable();
-      if (available) {
-        console.error('LLM classifier initialized (Ollama available)');
-      } else {
-        console.error('LLM classifier disabled (Ollama not available)');
+      if (!available) {
         this.useLLMClassification = false;
       }
-    } catch (error) {
-      console.error('Failed to initialize LLM classifier:', error);
+    } catch {
       this.useLLMClassification = false;
     }
   }
@@ -67,8 +63,6 @@ export class IssueDetectionPipeline {
    * If we have 10 messages about PROJ-123, we deduplicate to 1 first, then call LLM once.
    */
   async detectIssues(channel: string, date: string): Promise<Issue[]> {
-    const startTime = Date.now();
-
     try {
       // Step 1: Fetch raw messages from Slack
       const rawMessages = await this.messageService.findBlockerMessages(channel, date);
@@ -85,13 +79,9 @@ export class IssueDetectionPipeline {
       // Step 5: LLM Classification (filter false positives on deduplicated set)
       const finalIssues = await this.applyLLMClassification(deduplicatedIssues, rawMessages);
 
-      const processingTime = Date.now() - startTime;
-      console.error(`Pipeline completed in ${processingTime}ms: ${finalIssues.length} issues found`);
-
       return finalIssues;
 
     } catch (error) {
-      console.error('Error in issue detection pipeline:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Issue detection pipeline failed: ${errorMessage}`);
     }
@@ -118,11 +108,8 @@ export class IssueDetectionPipeline {
     // Check if Ollama is available
     const available = await this.llmClassifier.isAvailable();
     if (!available) {
-      console.error('Ollama not available, skipping LLM classification');
       return issues;
     }
-
-    console.error(`Applying LLM classification to ${issues.length} candidate issues...`);
 
     const filteredIssues: Issue[] = [];
     const messageMap = new Map<string, any>();
@@ -148,26 +135,18 @@ export class IssueDetectionPipeline {
         );
 
         if (classification.isBlocker) {
-          // LLM confirms this is a blocker
-          console.error(`  ✓ Confirmed blocker: ${issue.tickets.map(t => t.key).join(', ')} (confidence: ${classification.confidence}%)`);
           filteredIssues.push({
             ...issue,
-            // Add LLM reasoning to the issue for transparency
             llmConfidence: classification.confidence,
             llmReasoning: classification.reasoning
           } as Issue);
-        } else {
-          // LLM says this is NOT a blocker - filter it out
-          console.error(`  ✗ Filtered out: ${issue.tickets.map(t => t.key).join(', ')} - ${classification.reasoning}`);
         }
-      } catch (error) {
-        // On error, keep the issue (fail-safe: don't filter on error)
-        console.error(`  ? LLM error for ${issue.tickets.map(t => t.key).join(', ')}, keeping issue`);
+      } catch {
+        // On error, keep the issue (fail-safe)
         filteredIssues.push(issue);
       }
     }
 
-    console.error(`LLM classification complete: ${filteredIssues.length}/${issues.length} issues confirmed`);
     return filteredIssues;
   }
 
