@@ -74,3 +74,4 @@ test-results/
 # External repositories
 mcp-atlassian/
 slack_mcp_github/
+.mcp.json

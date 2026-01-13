@@ -7,11 +7,16 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { JiraClient } from './jira-client.js';
 import { JiraConfig } from './types.js';
 
-// Load environment variables from parent directory
-dotenv.config({ path: '../../.env' });
+// Load environment variables using __dirname for robust path resolution
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envPath = path.resolve(__dirname, '../../../.env');
+dotenv.config({ path: envPath });
 
 class JiraMCPServer {
   private server: Server;
