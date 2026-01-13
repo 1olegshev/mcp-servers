@@ -14,6 +14,7 @@
     "resolve:bot-users": "npm run build && node dist/scripts/resolve-bot-users.js"
   },
   "dependencies": {
+    "@mcp-servers/shared": "*",
     "@modelcontextprotocol/sdk": "^1.17.3",
     "@slack/web-api": "^6.9.0",
     "dotenv": "^16.3.1",

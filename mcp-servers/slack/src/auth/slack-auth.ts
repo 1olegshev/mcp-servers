@@ -32,7 +32,7 @@ export class SlackAuth {
     const xoxc = process.env.SLACK_MCP_XOXC_TOKEN;
     const xoxd = process.env.SLACK_MCP_XOXD_TOKEN;
     const legacyBot = process.env.SLACK_BOT_TOKEN;
-    
+
     if (xoxc) {
       this.client = createXOXCWebClient(xoxc, xoxd);
       return this.client;

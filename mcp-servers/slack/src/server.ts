@@ -8,9 +8,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ErrorCode, McpError, CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { loadEnv } from '@mcp-servers/shared';
 
 // Import our clean modular services
 import { SlackAuth } from './auth/slack-auth.js';
@@ -22,11 +20,8 @@ import { MessagingHandler } from './handlers/messaging.js';
 import { AnalysisHandler } from './handlers/analysis.js';
 import { ToolArgs } from './types/index.js';
 
-// Load environment variables
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const envPath = path.resolve(__dirname, '../../../.env');
-dotenv.config({ path: envPath });
+// Load environment variables using shared utility
+loadEnv(import.meta.url);
 
 export class SlackMCPServer {
   private server: Server;

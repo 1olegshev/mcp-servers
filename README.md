@@ -29,7 +29,7 @@ This repository contains MCP (Model Context Protocol) server implementations for
 
 3. **Install all dependencies:**
    ```bash
-   npm run install:all
+   npm install   # Uses npm workspaces to install all packages
    ```
 
 4. **Test your setup:**
@@ -314,24 +314,43 @@ This will check:
 
 ## 🏗️ Architecture
 
+This project uses **npm workspaces** for monorepo management with a shared utilities package.
+
 ```
 ├── mcp-servers/
+│   ├── shared/             # Shared utilities package (@mcp-servers/shared)
+│   │   ├── src/
+│   │   │   ├── env-loader.ts    # Environment loading utilities
+│   │   │   ├── errors.ts        # Error handling classes
+│   │   │   ├── types.ts         # Common TypeScript types
+│   │   │   └── index.ts         # Package exports
+│   │   └── package.json
 │   ├── slack/              # Slack MCP server
 │   ├── jira/               # Jira MCP server
 │   ├── confluence/         # Confluence MCP server
-│   └── release-coordinator/ # Release coordination orchestrator
+│   ├── release-coordinator/ # Release coordination orchestrator
+│   └── tsconfig.base.json  # Shared TypeScript configuration
 ├── mcp_config.json         # MCP client configuration
-├── package.json            # Root dependencies and scripts
+├── package.json            # Root workspace configuration
 ├── setup.sh               # Installation script
 ├── test-servers.sh        # Testing script
 └── README.md              # This file
 ```
 
+### Shared Package (`@mcp-servers/shared`)
+
+All servers use a common shared package for:
+- **Environment Loading**: Centralized `.env` file resolution
+- **Error Handling**: Consistent error classes (McpServerError, ValidationError, ApiError)
+- **Type Definitions**: Common MCP types (MCPResponse, MCPTool, etc.)
+- **Configuration Types**: API config interfaces for Atlassian and Slack
+
 Each MCP server:
 - Uses the official MCP SDK for protocol compliance
 - Implements stdio transport for client communication
 - Handles authentication via environment variables
-- Provides service-specific tools and capabilities
+- Imports shared utilities from `@mcp-servers/shared`
+- Extends the base TypeScript configuration
 
 ## 🔒 Security Notes
 

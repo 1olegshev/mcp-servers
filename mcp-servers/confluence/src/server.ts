@@ -6,17 +6,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { loadEnv, getEnv } from '@mcp-servers/shared';
 import { ConfluenceClient } from './confluence-client.js';
 import { ConfluenceConfig } from './types.js';
 
-// Load environment variables using __dirname for robust path resolution
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const envPath = path.resolve(__dirname, '../../../.env');
-dotenv.config({ path: envPath });
+// Load environment variables using shared utility
+loadEnv(import.meta.url);
 
 class ConfluenceMCPServer {
   private server: Server;

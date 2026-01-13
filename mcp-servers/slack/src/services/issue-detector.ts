@@ -68,7 +68,13 @@ export class IssueDetectorService {
 
       // Filter by severity if specified
       return this.filterIssuesBySeverity(allIssues, severity);
-    } catch (error) {
+    } catch (error: any) {
+      // Re-throw authentication errors - don't mask them as "no issues found"
+      const errorMessage = error?.message || String(error);
+      if (errorMessage.includes('invalid_auth') || errorMessage.includes('not_authed') || errorMessage.includes('token_expired')) {
+        throw error;
+      }
+      // Log and return empty for other errors (e.g., channel not found, rate limits)
       console.error('Error in findIssues:', error);
       return [];
     }

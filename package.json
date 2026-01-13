@@ -3,8 +3,17 @@
   "version": "1.0.0",
   "description": "MCP Servers for Confluence, Jira, and Slack integration",
   "private": true,
+  "workspaces": [
+    "mcp-servers/shared",
+    "mcp-servers/slack",
+    "mcp-servers/jira",
+    "mcp-servers/confluence",
+    "mcp-servers/release-coordinator"
+  ],
   "scripts": {
-    "build": "npm run build:confluence && npm run build:jira && npm run build:slack && npm run build:release-coordinator",
+    "build": "npm run build:shared && npm run build:servers",
+    "build:shared": "cd mcp-servers/shared && npm run build",
+    "build:servers": "npm run build:confluence && npm run build:jira && npm run build:slack && npm run build:release-coordinator",
     "build:confluence": "cd mcp-servers/confluence && npm run build",
     "build:jira": "cd mcp-servers/jira && npm run build",
     "build:slack": "cd mcp-servers/slack && npm run build",
@@ -20,11 +29,7 @@
     "dev:jira": "cd mcp-servers/jira && npm run dev",
     "dev:slack": "cd mcp-servers/slack && npm run dev",
     "dev:release-coordinator": "cd mcp-servers/release-coordinator && npm run dev",
-    "install:all": "npm run install:confluence && npm run install:jira && npm run install:slack && npm run install:release-coordinator",
-    "install:confluence": "cd mcp-servers/confluence && npm install",
-    "install:jira": "cd mcp-servers/jira && npm install",
-    "install:slack": "cd mcp-servers/slack && npm install",
-    "install:release-coordinator": "cd mcp-servers/release-coordinator && npm install",
+    "install:all": "npm install",
     "clean": "rm -rf node_modules mcp-servers/*/node_modules mcp-servers/*/dist",
     "clean:win": "rmdir /s /q node_modules & for /d %i in (mcp-servers\\*) do rmdir /s /q \"%i\\node_modules\" \"%i\\dist\""
   },
