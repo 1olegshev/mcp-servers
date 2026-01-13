@@ -21,7 +21,24 @@ This is a **Model Context Protocol (MCP)** workspace with 4 servers that integra
 
 ---
 
-## First 5 Commands
+## Using MCP Tools
+
+### Via Claude Code (Recommended)
+
+If servers are connected via `.mcp.json`, call tools directly without any setup:
+
+```
+mcp__jira__get_testing_summary
+mcp__jira__get_testing_remaining
+mcp__slack__get_blocking_issues
+mcp__slack__get_auto_test_status
+mcp__confluence__search_pages
+mcp__release-coordinator__get_comprehensive_release_overview
+```
+
+No environment variables or JSON-RPC needed - just invoke the tool by name.
+
+### Via CLI (Development/Debugging)
 
 Verify the environment works before doing anything else:
 
@@ -237,7 +254,9 @@ CONFLUENCE_API_TOKEN=your-api-token
 
 ---
 
-## CLI Testing (Critical for AI Agents)
+## CLI Testing (Development/Debugging)
+
+Use this approach when developing servers or when MCP integration isn't available.
 
 ### Quick Setup
 ```bash

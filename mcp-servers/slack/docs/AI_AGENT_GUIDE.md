@@ -305,9 +305,26 @@ Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyz
    → Return structured issue analysis
 ```
 
-## 🧪 Testing MCP Tools from CLI
+## 🧪 Testing MCP Tools
 
-When debugging or verifying tool behavior, call MCP tools directly via JSON-RPC instead of running production scripts.
+### Via Claude Code (Recommended)
+
+If the Slack server is connected via `.mcp.json`, call tools directly:
+
+```
+mcp__slack__get_auto_test_status
+mcp__slack__get_blocking_issues
+mcp__slack__get_release_status_overview
+mcp__slack__get_channel_history
+mcp__slack__search_messages
+mcp__slack__send_message  # ⚠️ Restricted to #qa-release-status
+```
+
+No environment setup or JSON-RPC needed - just invoke the tool by name.
+
+### Via CLI (Development/Debugging)
+
+When debugging or verifying tool behavior, call MCP tools via JSON-RPC instead of running production scripts.
 
 ### Quick Setup
 
