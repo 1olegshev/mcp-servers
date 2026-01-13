@@ -4,54 +4,14 @@ A Model Context Protocol (MCP) server for interacting with Slack workspaces, des
 
 ## Features
 
-- **Release Status Ana### Troubleshooting
-
-#### Authentication Issues
-
-- **"invalid_auth" error**: Token expired, extract new XOXC/XOXD
-- **"missing_scope" error**: User lacks permissions for requested action
-- **Network errors**: Check if Slack is accessible
-
-#### Token Extraction Problems
-
-- **Can't find d cookie**: Clear browser cache and try again
-- **XOXC not in headers**: Make sure you're logged in and making API requests
-- **Tokens don't work**: Verify workspace and token format
-
-#### Channel Access Issues
-
-- **"channel_not_found"**: User doesn't have access to channel
-- **"Write access restricted"**: Trying to post to unauthorized channel
-- **"is_archived"**: Channel has been archived
-
-#### Module Loading Issues
-
-- **ESM/CommonJS errors**: Project uses ES modules - ensure all imports use `.js` extensions
-- **"require() not found"**: Indicates CommonJS usage in ESM context - update to import statements
-- **Build errors**: Run `npm run build` after making changes to TypeScript filesive analysis ### Auto Test Analysis Contract
-
-- **Test Suites**: Always reports status for all three suites:
-  - Cypress (general) – bot_id: B067SLP8AR5
-  - Cypress (unverified) – bot_id: B067SMD5MAT
-  - Playwright (Jenkins) – bot_id: B052372DK4H (fallback by username/text if missing)
-- **Time Window Logic**:
-  - Monday: fetch Fri→Sun (inclusive); otherwise: previous day
-  - Uses inclusive history to avoid boundary misses; per-suite latest is selected within the window
-- **Enhanced Parsing and Detection**:
-  - Blocks and attachments text are extracted and parsed
-  - Playwright marked passed when "Success/PASSED/🟢/green" is present
-  - Threads analyzed for: rerun success, not blocking, still failing, PR opened, revert
-- **Improved Output Formatting**:
-  - Passed tests show: "✅" followed by "All tests passed" on next line
-  - Failed tests show detailed failure information with review status
-  - Clear spacing between test result sections
-- **Output**: Always shows all three suites with status and Slack permalink to parent messagetesting channels to determine release readiness
+- **Release Status Analysis**: Analyze testing channels to determine release readiness
+- **Auto Test Monitoring**: Detection and analysis of automated test results (Cypress, Playwright) with thread review analysis
+- **Blocking Issue Detection**: Identification of critical and blocking issues with JIRA ticket extraction
 - **Enhanced Test Reporting**: Improved formatting with clear "All tests passed" messages for successful tests
 - **Channel Communication**: Read from any channel, write only to authorized release channels
-- **Auto Test Monitoring**: Detection and analysis of automated test results with thread review analysis
-- **Blocking Issue Detection**: Identification of critical and blocking issues with JIRA ticket extraction
 - **Secure Channel Access**: Restricted write permissions for controlled release communication
 - **Modular Architecture**: Clean separation of concerns with dedicated services for analysis, formatting, and communication
+- **LLM Classification**: Optional Ollama/Qwen3 integration for semantic blocker classification
 
 ## Authentication
 
