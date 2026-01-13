@@ -1,5 +1,7 @@
 # Slack MCP Server - AI Agent Documentation
 
+> **Start with root [AGENT.md](../../../AGENT.md)** for project-wide tool matrix, decision trees, and common workflows. This doc is a deep dive into Slack server architecture.
+
 ## 🎯 Project Overview
 
 This is a **Model Context Protocol (MCP) server** that provides Slack integration for release management and QA coordination. The project follows a **clean, modular architecture** with proper separation of concerns.

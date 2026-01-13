@@ -21,6 +21,31 @@ This is a **Model Context Protocol (MCP)** workspace with 4 servers that integra
 
 ---
 
+## First 5 Commands
+
+Verify the environment works before doing anything else:
+
+```bash
+# 1. Load environment variables
+export $(grep -v '^#' .env | grep -v '^$' | xargs)
+
+# 2. Build all servers
+npm run build
+
+# 3. Test Jira connection
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_testing_summary","arguments":{}}}' | node mcp-servers/jira/dist/server.js 2>/dev/null | jq -r '.result.content[0].text' | head -10
+
+# 4. Test Slack connection
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_channels","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null | jq -r '.result.content[0].text' | head -10
+
+# 5. Test full release report
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_comprehensive_release_overview","arguments":{}}}' | node mcp-servers/release-coordinator/dist/server.js 2>/dev/null | jq -r '.result.content[0].text' | head -30
+```
+
+If any command fails, check [Troubleshooting](#troubleshooting) at the bottom.
+
+---
+
 ## Decision Trees
 
 ### What Tool Should I Use?

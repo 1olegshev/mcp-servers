@@ -1,10 +1,8 @@
 # MCP Servers Setup
 
+> **🤖 AI Agent? → [AGENT.md](AGENT.md)** — Decision trees, tool matrix, CLI testing, "do not modify" list, common workflows. Start there.
+
 This repository contains MCP (Model Context Protocol) server implementations for Slack, Jira, Confluence, and Release Coordination. These servers allow you to interact with these services through chat interfaces that support the MCP protocol.
-
-## 🤖 For AI Agents
-
-**👉 See [AGENT.md](AGENT.md)** — Complete guide for AI agents including tool matrix, decision trees, common workflows, CLI testing, and architecture.
 
 ## 🚀 Quick Start
 

@@ -2,6 +2,23 @@
 
 A Model Context Protocol (MCP) server for interacting with Slack workspaces, designed specifically for release management and QA coordination workflows.
 
+## AI Agent Quick Reference
+
+| What | Where |
+|------|-------|
+| Entry point | [src/server.ts](src/server.ts) — tool definitions + handlers |
+| API client | [src/clients/slack-client.ts](src/clients/slack-client.ts) — Slack Web API wrapper |
+| Auth | [src/auth/slack-auth.ts](src/auth/slack-auth.ts) — XOXC/XOXD session auth |
+| Types | [src/types/index.ts](src/types/index.ts) — TypeScript definitions |
+| Build | `npm run build` |
+| Tools | 9 read, 2 write (send_message restricted to #qa-release-status) |
+
+**Do not modify** without user request: `slack-auth.ts:validateWriteAccess()`, `TEST_BOT_IDS` in test-analyzer.ts.
+
+For full documentation, see root [AGENT.md](../../AGENT.md).
+
+---
+
 ## Features
 
 - **Release Status Analysis**: Analyze testing channels to determine release readiness

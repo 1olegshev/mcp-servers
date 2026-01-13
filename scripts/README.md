@@ -2,6 +2,8 @@
 
 This directory contains the automated release status reporting system for the MCP (Model Context Protocol) project.
 
+> **🤖 AI Agent?** See root [AGENT.md](../AGENT.md) for tool reference, CLI testing, and architecture overview.
+
 ## Files
 
 ### `release-status-auto.mjs`
