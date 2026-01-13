@@ -2,6 +2,26 @@
 
 This repository contains MCP (Model Context Protocol) server implementations for Slack, Jira, Confluence, and Release Coordination. These servers allow you to interact with these services through chat interfaces that support the MCP protocol.
 
+## 🤖 For AI Agents
+
+**Start here if you're an AI agent working with this codebase:**
+
+| What you need | Where to find it |
+|---------------|------------------|
+| CLI tool testing | [mcp-servers/slack/docs/AI_AGENT_GUIDE.md](mcp-servers/slack/docs/AI_AGENT_GUIDE.md#-testing-mcp-tools-from-cli) |
+| Architecture & data flow | [mcp-servers/slack/docs/AI_AGENT_GUIDE.md](mcp-servers/slack/docs/AI_AGENT_GUIDE.md#-architecture--file-structure) |
+| Code patterns & examples | [mcp-servers/slack/docs/QUICK_REFERENCE.md](mcp-servers/slack/docs/QUICK_REFERENCE.md) |
+| Type system | [mcp-servers/slack/docs/TYPE_SYSTEM.md](mcp-servers/slack/docs/TYPE_SYSTEM.md) |
+| VS Code / MCP setup | [MCP_SETUP.md](MCP_SETUP.md) |
+| Cron automation | [scripts/README.md](scripts/README.md) |
+
+**Quick CLI test (load env, call tool):**
+```bash
+cd /Users/olegshevchenko/Sourses/MCP
+export $(grep -v '^#' .env | grep -v '^$' | xargs)
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null
+```
+
 ## 🚀 Quick Start
 
 ### Prerequisites
