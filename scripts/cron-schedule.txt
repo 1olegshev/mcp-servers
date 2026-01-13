@@ -1,7 +1,10 @@
 # MCP Release Status Automation Cron Schedule
-# 
-# Production schedule: Daily release status at 12:05 PM on weekdays (Mon-Fri)
-5 12 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+#
+# Production schedule: Daily release status at 10:15 UTC on weekdays (Mon-Fri)
+# This equals 11:15 CET (winter) / 12:15 CEST (summer) in Oslo
+# TZ=UTC tells cron to interpret times in UTC, so DST is handled automatically
+TZ=UTC
+15 10 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
 
 # To install this schedule:
 # crontab /Users/olegshevchenko/Sourses/MCP/scripts/cron-schedule.txt
