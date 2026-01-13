@@ -21,6 +21,82 @@ This is a **Model Context Protocol (MCP)** workspace with 4 servers that integra
 
 ---
 
+## Decision Trees
+
+### What Tool Should I Use?
+
+| I need to... | Use this | Server |
+|--------------|----------|--------|
+| Get full release status report | `get_comprehensive_release_overview` | release-coordinator |
+| Find blocking issues from Slack | `get_blocking_issues` | slack |
+| Check automated test results | `get_auto_test_status` | slack |
+| Count tickets by testing status | `get_testing_summary` | jira |
+| List tickets remaining in QA | `get_testing_remaining` | jira |
+| Search Jira with JQL | `search_issues` | jira |
+| Get single ticket details | `get_issue_details` | jira |
+| Read a Confluence page | `read_article` | confluence |
+| Search Confluence pages | `search_pages` | confluence |
+| Post message to Slack | `send_message` | slack ⚠️ |
+
+⚠️ **Slack writes are restricted to `#qa-release-status` channel only.**
+
+### What Should I NOT Modify?
+
+These files contain critical business logic or security controls. Do not change without explicit user request:
+
+| File | What It Controls | Why It Matters |
+|------|------------------|----------------|
+| `mcp-servers/slack/src/auth/slack-auth.ts` | Write channel restrictions | Only `#qa-release-status` allows writes |
+| `mcp-servers/jira/src/server.ts` → `TEAM_QUERIES` | Team → JQL mappings | Business logic for team filtering |
+| `mcp-servers/jira/src/server.ts` → `NO_TEST_LABELS` | NoTest ticket exclusion | Matches testing board behavior |
+| `mcp-servers/jira/src/server.ts` → `DOMAIN_QUERIES` | Domain → JQL mappings | Frontend/backend/remix filtering |
+| `.env` | API credentials | Never commit, never log contents |
+
+---
+
+## Common Workflows
+
+### Generate Daily Release Status
+```
+1. get_comprehensive_release_overview (postToSlack: false)
+   → Review output for accuracy
+2. If correct: get_comprehensive_release_overview (postToSlack: true)
+   → Posts formatted report to #qa-release-status
+```
+
+### Investigate a Failing Test
+```
+1. get_auto_test_status → Find failing test suite and thread link
+2. get_thread_replies (channel, thread_ts) → Read discussion
+3. Check for: "reviewed", "rerun requested", "known flaky", "fix in progress"
+4. Report findings with thread context
+```
+
+### Find All Release Blockers
+```
+1. get_blocking_issues → Slack-reported blockers (with LLM classification)
+2. get_testing_remaining → Tickets still in QA/Testing
+3. search_issues (jql: "priority = Blocker") → Jira priority blockers
+4. Cross-reference and deduplicate
+```
+
+### Check Testing Progress for a Team
+```
+1. get_testing_summary (byTeam: true) → Overview counts
+2. get_team_tickets (team: "commercial", status: "In QA") → Specific tickets
+3. Format response with ticket links
+```
+
+### Update Confluence Documentation
+```
+1. search_pages (query: "topic") → Find existing page
+2. read_article (pageId) → Get current content
+3. preview_changes (pageId, newContent) → Verify changes
+4. update_article (pageId, newContent, publish: true) → Apply changes
+```
+
+---
+
 ## Quick Reference
 
 ### Server Capability Matrix
@@ -140,7 +216,7 @@ CONFLUENCE_API_TOKEN=your-api-token
 
 ### Quick Setup
 ```bash
-cd /Users/olegshevchenko/Sourses/MCP
+# From project root (or use: cd "$(git rev-parse --show-toplevel)")
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 ```
 
@@ -193,7 +269,7 @@ cd mcp-servers/slack && npm run build
 ## Project Structure
 
 ```
-/Users/olegshevchenko/Sourses/MCP/
+./  (project root)
 ├── AGENT.md                 # ◄── YOU ARE HERE
 ├── README.md                # Human-oriented overview
 ├── MCP_SETUP.md            # VS Code MCP setup
@@ -321,6 +397,22 @@ output += `[Link Text](https://url.com)`;   // Square brackets
 - All servers use ES modules
 - Imports must include `.js` extension: `import { foo } from './bar.js'`
 - Run `npm run build` after any TypeScript changes
+
+---
+
+## Architecture Invariants
+
+These are intentional design decisions. Do not "fix" or "improve" them without explicit user request:
+
+| Invariant | Location | Reason |
+|-----------|----------|--------|
+| Slack writes only to `#qa-release-status` | `slack-auth.ts:validateWriteAccess()` | Safety: prevents accidental spam to other channels |
+| NoTest labels excluded by default | `jira/server.ts:NO_TEST_LABELS` | Matches testing board behavior |
+| Team query mappings are hardcoded | `jira/server.ts:TEAM_QUERIES` | Business logic agreed with stakeholders |
+| Slack markdown, NOT standard markdown | All Slack output formatting | Slack renders `*bold*` not `**bold**`, `<url\|text>` not `[text](url)` |
+| ESM imports require `.js` extension | All TypeScript files | Required for ES modules to work |
+| LLM classification is optional | `llm-classifier.service.ts` | Falls back to regex when Ollama unavailable |
+| Deduplication before LLM | `issue-detection.pipeline.ts` | Minimize expensive LLM calls |
 
 ---
 

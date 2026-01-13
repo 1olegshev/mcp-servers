@@ -23,7 +23,8 @@ Bash wrapper script for cron execution that:
 The system is scheduled to run via cron:
 ```bash
 # Current schedule: Every weekday at 12:05 PM
-5 12 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+# NOTE: Cron requires absolute paths - adjust to your project location
+5 12 * * 1-5 $PROJECT_ROOT/scripts/cron-release-wrapper.sh
 ```
 
 ### View current cron jobs:
@@ -44,18 +45,17 @@ crontab -r
 ## Logs
 
 All execution logs are stored in:
-- `/Users/olegshevchenko/Sourses/MCP/logs/cron-auto-release.log`
+- `./logs/cron-auto-release.log` (relative to project root)
 
 ## Manual Testing
 
 To test the automation manually:
 ```bash
-# Direct Node.js execution
-cd /Users/olegshevchenko/Sourses/MCP
+# Direct Node.js execution (from project root)
 node scripts/release-status-auto.mjs
 
 # Via cron wrapper (simulates cron environment)
-/Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+./scripts/cron-release-wrapper.sh
 ```
 
 ## Troubleshooting
@@ -68,7 +68,8 @@ node scripts/release-status-auto.mjs
 
 ### Check logs:
 ```bash
-tail -f /Users/olegshevchenko/Sourses/MCP/logs/cron-auto-release.log
+# From project root
+tail -f ./logs/cron-auto-release.log
 ```
 
 ## Success Indicators

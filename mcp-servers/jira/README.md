@@ -2,6 +2,22 @@
 
 A Model Context Protocol server for interacting with Jira, focused on testing workflow management and release coordination.
 
+## AI Agent Quick Reference
+
+| What | Where |
+|------|-------|
+| Entry point | [src/server.ts](src/server.ts) — tool definitions + handlers |
+| API client | [src/jira-client.ts](src/jira-client.ts) — Axios-based REST client |
+| Types | [src/types.ts](src/types.ts) — TypeScript interfaces |
+| Build | `npm run build` |
+| Tools | 6 read, 2 write (labels/components) |
+
+**Do not modify** without user request: `TEAM_QUERIES`, `NO_TEST_LABELS`, `DOMAIN_QUERIES` constants.
+
+For full documentation, see root [AGENT.md](../../AGENT.md).
+
+---
+
 ## Features
 
 - **Testing Progress Tracking**: Monitor tickets in Testing/QA statuses
@@ -122,7 +138,7 @@ Update components on an issue.
 
 ### Setup
 ```bash
-cd /Users/olegshevchenko/Sourses/MCP
+# From project root
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 ```
 
@@ -160,7 +176,8 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_issue_
 
 ### One-liner (full testing summary)
 ```bash
-cd /Users/olegshevchenko/Sourses/MCP && export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_testing_summary","arguments":{}}}' | node mcp-servers/jira/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
+# From project root
+export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_testing_summary","arguments":{}}}' | node mcp-servers/jira/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ## Configuration

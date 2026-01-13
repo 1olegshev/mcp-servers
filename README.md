@@ -4,24 +4,7 @@ This repository contains MCP (Model Context Protocol) server implementations for
 
 ## 🤖 For AI Agents
 
-**👉 Start here: [AGENT.md](AGENT.md)** — Comprehensive guide with tool matrix, CLI testing, and file locations.
-
-| What you need | Where to find it |
-|---------------|------------------|
-| **Primary entry point** | **[AGENT.md](AGENT.md)** |
-| CLI tool testing | [AGENT.md](AGENT.md#cli-testing-critical-for-ai-agents) |
-| Tool capability matrix | [AGENT.md](AGENT.md#server-capability-matrix) |
-| Slack architecture | [mcp-servers/slack/docs/AI_AGENT_GUIDE.md](mcp-servers/slack/docs/AI_AGENT_GUIDE.md) |
-| Code patterns | [mcp-servers/slack/docs/QUICK_REFERENCE.md](mcp-servers/slack/docs/QUICK_REFERENCE.md) |
-| Type system | [mcp-servers/slack/docs/TYPE_SYSTEM.md](mcp-servers/slack/docs/TYPE_SYSTEM.md) |
-| Cron automation | [scripts/README.md](scripts/README.md) |
-
-**Quick CLI test (load env, call tool):**
-```bash
-cd /Users/olegshevchenko/Sourses/MCP
-export $(grep -v '^#' .env | grep -v '^$' | xargs)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null
-```
+**👉 See [AGENT.md](AGENT.md)** — Complete guide for AI agents including tool matrix, decision trees, common workflows, CLI testing, and architecture.
 
 ## 🚀 Quick Start
 

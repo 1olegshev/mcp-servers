@@ -310,8 +310,7 @@ When debugging or verifying tool behavior, call MCP tools directly via JSON-RPC 
 ### Quick Setup
 
 ```bash
-# 1. Go to project root and load env
-cd /Users/olegshevchenko/Sourses/MCP
+# 1. From project root, load env
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 
 # 2. Build if needed
@@ -350,7 +349,8 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_releas
 ### One-Liner (Full Test Check)
 
 ```bash
-cd /Users/olegshevchenko/Sourses/MCP && export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
+# From project root
+export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ### Tool Safety Reference

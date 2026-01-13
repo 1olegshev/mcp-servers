@@ -2,6 +2,22 @@
 
 A Model Context Protocol server for interacting with Confluence, focused on QA documentation and article management.
 
+## AI Agent Quick Reference
+
+| What | Where |
+|------|-------|
+| Entry point | [src/server.ts](src/server.ts) — tool definitions + handlers |
+| API client | [src/confluence-client.ts](src/confluence-client.ts) — Axios-based REST client |
+| Types | [src/types.ts](src/types.ts) — TypeScript interfaces |
+| Build | `npm run build` |
+| Tools | 5 read, 4 write (articles/drafts) |
+
+**Write safety**: Updates restricted to QA space. Use `create_qa_draft` for safe testing.
+
+For full documentation, see root [AGENT.md](../../AGENT.md).
+
+---
+
 ## Features
 
 - **Content Search**: Search pages by keywords, author, or CQL
@@ -118,7 +134,7 @@ Create a new article in any space.
 
 ### Setup
 ```bash
-cd /Users/olegshevchenko/Sourses/MCP
+# From project root
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 ```
 
@@ -161,7 +177,8 @@ cd mcp-servers/confluence && npm run test
 
 ### One-liner (list spaces)
 ```bash
-cd /Users/olegshevchenko/Sourses/MCP && export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_spaces","arguments":{}}}' | node mcp-servers/confluence/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
+# From project root
+export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_spaces","arguments":{}}}' | node mcp-servers/confluence/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
 ```
 
 ## Configuration
