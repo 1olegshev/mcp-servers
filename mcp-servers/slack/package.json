@@ -16,11 +16,11 @@
   "dependencies": {
     "@mcp-servers/shared": "*",
     "@modelcontextprotocol/sdk": "^1.17.3",
-    "@slack/web-api": "^6.9.0"
+    "@slack/web-api": "^7.0.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.12",
-    "@types/node": "^20.11.30",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.0",
     "jest": "^30.0.0",
     "nodemon": "^3.1.10",
     "ts-jest": "^29.4.0",

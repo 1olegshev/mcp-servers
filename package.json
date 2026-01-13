@@ -34,6 +34,6 @@
     "clean:win": "rmdir /s /q node_modules & for /d %i in (mcp-servers\\*) do rmdir /s /q \"%i\\node_modules\" \"%i\\dist\""
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^9.0.0"
   }
 }

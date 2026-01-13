@@ -8,7 +8,7 @@ This repository contains MCP (Model Context Protocol) server implementations for
 
 ### Prerequisites
 
-- Node.js 16+
+- Node.js 24+ (LTS)
 - npm
 - API access tokens for Slack, Jira, and Confluence
 

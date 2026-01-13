@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
-import dotenv from 'dotenv';
+import { loadEnv } from '@mcp-servers/shared';
 import { ConfluenceClient } from './confluence-client.js';
 import { ConfluenceConfig } from './types.js';
 
-// Load environment variables from parent directory
-dotenv.config({ path: '../../.env' });
+// Load environment variables using shared utility
+loadEnv(import.meta.url);
 
 class ConfluenceTest {
   private confluence: ConfluenceClient;
