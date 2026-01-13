@@ -131,13 +131,13 @@ export class LLMTestClassifierService {
       return parts.filter(Boolean).join(' ');
     };
 
-    // Include full thread content - there are only 3 test threads total
-    // so we need full context to understand which reply refers to which test
+    // Include full thread content with user IDs preserved for tag matching
     const threadContent = [
       `[Bot] ${collectText(originalMessage)}`,
       ...replies.map((r) => {
         const isBot = !!(r as any).bot_id;
-        const prefix = isBot ? '[Bot]' : '[Human]';
+        const userId = (r as any).user || 'unknown';
+        const prefix = isBot ? '[Bot]' : `[User:${userId}]`;
         return `${prefix} ${collectText(r)}`;
       })
     ].join('\n\n');
@@ -153,12 +153,19 @@ ${numberedTests}
 Thread:
 ${threadContent}
 
-For EACH test, determine status from replies (e.g., "passes for me" = flakey):
-- resolved: passed on rerun, fixed
-- flakey: passes locally, intermittent
-- investigating: looking into it
-- still_failing: confirmed broken
-- unclear: no relevant info
+STATUS DEFINITIONS (important distinctions):
+- flakey: "passing locally" or "passes for me" = environment-specific, not a real bug
+- needs_attention: "failing locally" = confirmed real issue that needs fixing
+- resolved: explicitly fixed or passed on rerun
+- investigating: someone said they'll look into it
+- still_failing: confirmed still broken, "same as before"
+- unclear: test NOT MENTIONED in any reply = awaiting review
+
+IMPORTANT RULES:
+1. If someone says a test is "passing locally" → flakey
+2. If someone says a test is "failing locally" → needs_attention (NOT flakey!)
+3. If a test is NOT mentioned by anyone in the thread → unclear (awaiting review)
+4. If @UserX is tagged for a test and UserX replies without mentioning a specific test, assume they're discussing the test they were tagged for
 
 Output ONLY valid JSON:
 {"tests":[{"id":1,"status":"flakey","confidence":80}]}`;
@@ -217,6 +224,7 @@ Output ONLY valid JSON:
       'investigating': '🔍 investigating',
       'flakey': '⚠️ flakey/env-specific',
       'flaky': '⚠️ flakey/env-specific',
+      'needs_attention': '🚨 needs attention',
       'still_failing': '❌ still failing',
       'unclear': '❓ needs review',
     };

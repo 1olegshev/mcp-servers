@@ -28,7 +28,7 @@ export class LLMClassifierService {
 
   constructor(
     ollamaUrl: string = 'http://localhost:11434',
-    model: string = 'qwen3:14b'
+    model: string = 'qwen3:30b-a3b-instruct-2507-q4_K_M'  // Non-thinking instruct model
   ) {
     this.ollamaUrl = ollamaUrl;
     this.model = model;
@@ -105,24 +105,25 @@ export class LLMClassifierService {
       .filter(t => t.length > 0)
       .join('\n---\n');
 
-    return `Classify this Slack message as a release blocker or not.
+    return `Is this Slack message about a RELEASE blocker?
 
-RELEASE BLOCKER if:
-- Explicitly says "blocker", "release blocker", "blocking the release"
-- Says "we need to hotfix" or "prepare hotfix"
-- Says "no go for release"
-- Mentions @test-managers about blocking issues
+STRONG BLOCKER SIGNALS:
+- CC @test-managers = escalation to release gatekeepers, very likely a blocker
+- "release blocker", "blocking the release", "hotfix needed", "no go"
 
-NOT A BLOCKER if:
-- Asks a question like "Is this a blocker?"
-- Mentions UI terms like "answer blocks", "code block", "text block"
-- Contains "not blocking", "not a blocker", "no longer blocking"
-- Is about ad-blockers or console "Blocked" errors
+NOT A RELEASE BLOCKER:
+- "blocking us to retest/test" = workflow inconvenience, not release blocker
+- Questions like "Is this a blocker?"
+- UI terms: "answer blocks", "code block"
+- "not blocking", "no longer blocking"
+- "minor issue", "nice to fix", "Legacy bugs" = not release critical
+
+KEY: "blocking" alone often means workflow blocking. "release blocker" or @test-managers = actual release blocker.
 
 Message: "${mainText}"
 ${threadText ? `\nThread context:\n${threadText}` : ''}
 
-Think briefly, then output your answer as JSON:
+Output JSON only:
 {"isBlocker": true/false, "confidence": 0-100, "reasoning": "brief reason"}`;
   }
 
