@@ -303,6 +303,84 @@ Raw Messages → SlackMessageService → BlockerPatternService → ContextAnalyz
    → Return structured issue analysis
 ```
 
+## 🧪 Testing MCP Tools from CLI
+
+When debugging or verifying tool behavior, call MCP tools directly via JSON-RPC instead of running production scripts.
+
+### Quick Setup
+
+```bash
+# 1. Go to project root and load env
+cd /Users/olegshevchenko/Sourses/MCP
+export $(grep -v '^#' .env | grep -v '^$' | xargs)
+
+# 2. Build if needed
+cd mcp-servers/slack && npm run build && cd ../..
+```
+
+### Calling Tools
+
+```bash
+# Pattern: pipe JSON-RPC to server stdin
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"TOOL_NAME","arguments":{...}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null
+```
+
+### Common Tool Calls
+
+**List available tools:**
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node mcp-servers/slack/dist/server.js 2>/dev/null | jq '.result.tools[].name'
+```
+
+**Get auto test status (safe, read-only):**
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{"date":"today"}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null
+```
+
+**Get blocking issues (safe, read-only):**
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_blocking_issues","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null
+```
+
+**Get release overview (safe, read-only):**
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_release_status_overview","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null
+```
+
+### One-Liner (Full Test Check)
+
+```bash
+cd /Users/olegshevchenko/Sourses/MCP && export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{}}}' | node mcp-servers/slack/dist/server.js 2>/dev/null | jq -r '.result.content[0].text'
+```
+
+### Tool Safety Reference
+
+| Tool | Safe | Notes |
+|------|------|-------|
+| `get_auto_test_status` | ✅ | Read-only |
+| `get_blocking_issues` | ✅ | Read-only |
+| `get_release_status_overview` | ✅ | Read-only |
+| `get_channel_history` | ✅ | Read-only |
+| `search_messages` | ✅ | Read-only |
+| `send_message` | ⚠️ | Posts to Slack (restricted to qa-release-status) |
+
+### Common Errors
+
+| Error | Fix |
+|-------|-----|
+| `Missing Slack authentication` | Run `export $(grep -v '^#' .env | grep -v '^$' | xargs)` from project root |
+| `Cannot find module` | Run `npm run build` in the server directory |
+| `ENOENT dist/server.js` | Wrong directory - `cd` to project root first |
+
+### Converting Slack Timestamps
+
+Slack URLs contain timestamps (e.g., `p1768296887355659`). Convert to date:
+```bash
+date -r 1768296887 '+%Y-%m-%d %H:%M'
+```
+
+---
+
 ## 🔧 How to Work with This Project (AI Agent Guide)
 
 ### ✅ **Adding New Tools**
