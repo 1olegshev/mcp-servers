@@ -358,73 +358,27 @@ export class ThreadAnalyzerService {
       return '⏳ Awaiting review';
     }
 
-    const counts = this.classifyStatuses(perTestStatus);
-    const {
-      resolvedCount,
-      assignedCount,
-      rerunCount,
-      fixProgressCount,
-      ackCount,
-      rootCauseCount,
-      explainedCount,
-      needsReproCount,
-      flakeyCount,
-      testUpdateCount,
-      unclearCount,
-      investigatingCount,
-      blockerCount,
-      stillFailingCount,
-      revertCount,
-    } = counts;
+    // Simple verdict logic: any test needing attention = suite needs attention
+    for (const status of statuses) {
+      const l = status.toLowerCase();
 
-    if (blockerCount > 0) {
-      return `🚫 ${blockerCount} blocker${blockerCount > 1 ? 's' : ''} found`;
+      // These statuses mean the suite needs attention
+      if (l.includes('blocker') && !l.includes('not blocking')) {
+        return '🚫 Blocker found';
+      }
+      if (l.includes('still failing')) {
+        return '⚠️ Needs attention';
+      }
+      if (l.includes('needs attention') || l.includes('🚨')) {
+        return '⚠️ Needs attention';
+      }
+      if (l.includes('unclear') || l.includes('needs review') || l.includes('❓')) {
+        return '⚠️ Needs attention';
+      }
     }
 
-    const parts: string[] = [];
-
-    // Show critical failures first
-    if (stillFailingCount > 0) {
-      parts.push(`❌ ${stillFailingCount} still failing`);
-    }
-
-    if (resolvedCount > 0) {
-      parts.push(`✅ ${resolvedCount} resolved/not blocking`);
-    }
-
-    const progressParts: string[] = [];
-    if (revertCount > 0) progressParts.push(`revert ${revertCount}`);
-    if (assignedCount > 0) progressParts.push(`assigned ${assignedCount}`);
-    if (rerunCount > 0) progressParts.push(`rerun ${rerunCount}`);
-    if (fixProgressCount > 0) progressParts.push(`fix ${fixProgressCount}`);
-    if (needsReproCount > 0) progressParts.push(`needs repro ${needsReproCount}`);
-    if (progressParts.length > 0) {
-      parts.push(`🔄 ${progressParts.join(', ')}`);
-    }
-
-    if (investigatingCount > 0) {
-      parts.push(`🔍 ${investigatingCount} under investigation`);
-    }
-
-    if (unclearCount > 0) {
-      parts.push(`❓ ${unclearCount} needs review`);
-    }
-
-    const infoParts: string[] = [];
-    if (ackCount > 0) infoParts.push(`ack ${ackCount}`);
-    if (rootCauseCount > 0) infoParts.push(`root cause ${rootCauseCount}`);
-    if (explainedCount > 0) infoParts.push(`explained ${explainedCount}`);
-    if (flakeyCount > 0) infoParts.push(`flakey ${flakeyCount}`);
-    if (testUpdateCount > 0) infoParts.push(`test update ${testUpdateCount}`);
-    if (infoParts.length > 0) {
-      parts.push(`ℹ️ ${infoParts.join(', ')}`);
-    }
-
-    if (parts.length > 0) {
-      return parts.join(' • ');
-    }
-
-    return '❓ Status unclear - review needed';
+    // If we get here, all tests are in a "not blocking" state
+    return '✅ Reviewed - not blocking';
   }
 
   classifyStatuses(perTestStatus: Record<string, string>) {

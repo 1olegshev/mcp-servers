@@ -83,48 +83,29 @@ export class TestReportFormatter {
     if (present.length === 0) {
       output += `❓ *AUTO TEST STATUS: NO RECENT RESULTS*\n`;
     } else {
+      // Simple verdict based on per-suite sectionSummary
       const allPassed = present.every(t => t.status === 'passed');
 
-      const suiteHasUnclear = (t: TestResult): boolean => {
-        if (!t.perTestStatus || !Object.keys(t.perTestStatus).length) return false;
-        const counts = this.threadAnalyzer.classifyStatuses(t.perTestStatus);
-        return counts.unclearCount > 0;
+      const suiteNeedsAttention = (t: TestResult): boolean => {
+        if (t.status === 'passed') return false;
+        const summary = (t.sectionSummary || '').toLowerCase();
+        return summary.includes('⚠️') || summary.includes('🚫') || summary.includes('needs attention') || summary.includes('blocker');
       };
 
-      const suiteHasInvestigating = (t: TestResult): boolean => {
-        if (!t.perTestStatus || !Object.keys(t.perTestStatus).length) return false;
-        const counts = this.threadAnalyzer.classifyStatuses(t.perTestStatus);
-        if (counts.investigatingCount > 0) return true;
-        const summary = (t.reviewSummary || '').toLowerCase();
-        const statusNote = (t.statusNote || '').toLowerCase();
-        return summary.includes('under investigation') || statusNote.includes('under investigation') ||
-               summary.includes('looking into') || statusNote.includes('looking into');
-      };
-
-      const suiteFullyCleared = (t: TestResult): boolean => {
+      const suiteCleared = (t: TestResult): boolean => {
         if (t.status === 'passed') return true;
-        if (t.status !== 'failed' || !t.hasReview) return false;
-        if (!t.perTestStatus || !Object.keys(t.perTestStatus).length) return false;
-        const counts = this.threadAnalyzer.classifyStatuses(t.perTestStatus);
-        const summary = (t.reviewSummary || '').toLowerCase();
-        const statusNote = (t.statusNote || '').toLowerCase();
-        const notBlockingSignal = summary.includes('not blocking') || statusNote.includes('not blocking');
-        const rerunSuccess = summary.includes('manual rerun successful') || statusNote.includes('manual rerun successful');
-        const allTestsCleared = counts.resolvedCount > 0 && counts.resolvedCount === Object.keys(t.perTestStatus).length;
-        return (notBlockingSignal || rerunSuccess) && allTestsCleared;
+        const summary = (t.sectionSummary || '').toLowerCase();
+        return summary.includes('✅') || summary.includes('not blocking');
       };
 
-      const anyUnclear = present.some(suiteHasUnclear);
-      const anyInvestigating = present.some(suiteHasInvestigating);
-      const allCleared = present.every(suiteFullyCleared);
+      const anyNeedsAttention = present.some(suiteNeedsAttention);
+      const allCleared = present.every(suiteCleared);
 
-      if (allPassed && present.length >= 2) {
+      if (allPassed) {
         output += `✅ *AUTO TEST STATUS: ALL PASSED*\n`;
-      } else if (anyUnclear) {
-        output += `❓ *AUTO TEST STATUS: NEEDS REVIEW*\n`;
-      } else if (anyInvestigating) {
-        output += `🔍 *AUTO TEST STATUS: UNDER INVESTIGATION*\n`;
-      } else if (allCleared && present.length >= 2) {
+      } else if (anyNeedsAttention) {
+        output += `⚠️ *AUTO TEST STATUS: ATTENTION REQUIRED*\n`;
+      } else if (allCleared) {
         output += `✅ *AUTO TEST STATUS: RESOLVED - NOT BLOCKING*\n`;
       } else {
         output += `⚠️ *AUTO TEST STATUS: ATTENTION REQUIRED*\n`;
