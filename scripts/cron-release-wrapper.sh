@@ -33,7 +33,7 @@ cd /Users/olegshevchenko/Sourses/MCP || {
 # 3. Then execute the job
 
 CURRENT_HOUR=$(date +%H)
-UTC_OFFSET=$(date +%z | sed 's/00$//' | sed 's/^+//')  # e.g., +0100 -> 1, +0200 -> 2
+UTC_OFFSET=$(date +%z | sed 's/00$//' | sed 's/^+//' | sed 's/^0//')  # e.g., +0100 -> 1, +0200 -> 2
 
 # If triggered at 12:15 in winter, skip (shouldn't happen often, but be safe)
 if [ "$UTC_OFFSET" = "1" ] && [ "$CURRENT_HOUR" = "12" ]; then
