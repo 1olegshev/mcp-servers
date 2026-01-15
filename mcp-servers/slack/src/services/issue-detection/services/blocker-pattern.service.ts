@@ -7,6 +7,12 @@
 import { TextAnalyzer } from '../../../utils/analyzers.js';
 import { JiraTicketInfo } from '../../../types/index.js';
 import { IPatternMatcher, TicketContext } from '../models/service-interfaces.js';
+import {
+  BLOCKING_PATTERNS,
+  CRITICAL_PATTERNS,
+  RESOLUTION_PATTERNS,
+  BLOCKING_KEYWORD_PATTERNS,
+} from '../../../utils/patterns.js';
 
 export class BlockerPatternService implements IPatternMatcher {
   private jiraBaseUrl: string;
@@ -33,16 +39,20 @@ export class BlockerPatternService implements IPatternMatcher {
 
     // BUSINESS RULE: Hotfixes are ONLY made for blockers
     // Check for hotfix context first
-    if (this.isHotfixContext(text)) {
+    if (TextAnalyzer.isHotfixContext(text)) {
       return true;
     }
 
-    // Accept explicit signals or release/deploy contexts only; avoid generic 'blocks' (e.g., UI blocks)
-    const explicit = /\b(blocker|blocking)\b/i.test(text) || /release\s*blocker/i.test(text);
-    const releaseContext = /(\bblock(s)?\b|\bblocking\b).*\b(release|deploy(?:ment)?|prod(?:uction)?)\b/i.test(lowerText);
-    const noGo = /no[-_\s]?go/i.test(lowerText);
+    // Check explicit blocking patterns
+    const hasExplicit = BLOCKING_PATTERNS.explicit.some(pattern => pattern.test(text));
 
-    return lowerText.includes('@test-managers') || lowerText.includes('hotfix') || explicit || releaseContext || noGo;
+    // Check contextual patterns (no-go, @test-managers, hotfix)
+    const hasContextual = BLOCKING_PATTERNS.contextual.some(pattern => pattern.test(lowerText));
+
+    // Check release context pattern
+    const hasReleaseContext = BLOCKING_PATTERNS.releaseContext.test(lowerText);
+
+    return hasExplicit || hasContextual || hasReleaseContext;
   }
 
   /**
@@ -51,36 +61,16 @@ export class BlockerPatternService implements IPatternMatcher {
   hasCriticalIndicators(text: string): boolean {
     const lower = (text || '').toLowerCase();
 
-    // Negative/mitigating signals (any of these should cancel a positive match)
-    const negativeSignals = [
-      /\bnot\s+(a\s+)?(super\s+)?high\s+priority\b/i,
-      /\bnot\s+urgent\b/i,
-      /\bnot\s+critical\b/i,
-      /\blow\s+priority\b/i,
-      /\bno\s+need\s+to\s+tackle\s+immediately\b/i,
-      /\bnot\s+.*tackle\s+immediately\b/i,
-      /\bnot\s+immediate(ly)?\b/i,
-    ];
-
-    const hasNegative = negativeSignals.some(re => re.test(lower));
-
-    // Positive signals
-    const positiveSignals = [
-      // "this is critical" / "critical issue" / standalone critical (but not within "not critical")
-      /\bcritical(?!\s*path)\b/i,
-      /\burgent\b/i,
-      /\bhigh\s+priority\b/i,
-    ];
-
-    const hasPositive = positiveSignals.some(re => re.test(lower));
-
-    // Only treat as critical if there's a positive indicator and no negation nearby
+    // Check for positive signals using centralized patterns
+    const hasPositive = CRITICAL_PATTERNS.positive.some(pattern => pattern.test(lower));
     if (!hasPositive) return false;
+
+    // Check for negative/mitigating signals
+    const hasNegative = CRITICAL_PATTERNS.negative.some(pattern => pattern.test(lower));
     if (hasNegative) return false;
 
-    // Additional windowed negation check: "not ... (critical|urgent|high priority)" within ~4 words
-    const windowNegation = /\b(?:not|isn['']?t|no|doesn['']?t(?:\s+have)?)\b(?:\W+\w+){0,4}\W+(?:critical|urgent|high\s+priority)\b/i.test(lower);
-    if (windowNegation) return false;
+    // Check windowed negation
+    if (CRITICAL_PATTERNS.windowNegation.test(lower)) return false;
 
     return true;
   }
@@ -162,19 +152,8 @@ export class BlockerPatternService implements IPatternMatcher {
    */
   extractBlockingKeywords(text: string): string[] {
     const keywords: string[] = [];
-    const lowerText = text.toLowerCase();
 
-    const blockingPatterns = [
-      { pattern: /\bblocker\b/i, keyword: 'blocker' },
-      { pattern: /\bblocking\b/i, keyword: 'blocking' },
-      { pattern: /release\s*blocker/i, keyword: 'release blocker' },
-      { pattern: /\bblocks?\b/i, keyword: 'blocks' },
-      { pattern: /no.?go/i, keyword: 'no-go' },
-      { pattern: /@test.managers/i, keyword: 'test-managers' },
-      { pattern: /hotfix/i, keyword: 'hotfix' }
-    ];
-
-    for (const { pattern, keyword } of blockingPatterns) {
+    for (const { pattern, keyword } of BLOCKING_KEYWORD_PATTERNS) {
       if (pattern.test(text)) {
         keywords.push(keyword);
       }
@@ -189,49 +168,12 @@ export class BlockerPatternService implements IPatternMatcher {
   extractResolutionKeywords(text: string): string[] {
     const keywords: string[] = [];
 
-    const resolutionPatterns = [
-      { pattern: /\bresolved\b/i, keyword: 'resolved' },
-      { pattern: /\bfixed\b/i, keyword: 'fixed' },
-      { pattern: /\bdeployed\b/i, keyword: 'deployed' },
-      { pattern: /not.*blocking/i, keyword: 'not blocking' },
-      { pattern: /no.*longer.*blocking/i, keyword: 'no longer blocking' },
-      { pattern: /\bnot a blocker\b/i, keyword: 'not a blocker' }
-    ];
-
-    for (const { pattern, keyword } of resolutionPatterns) {
+    for (const { pattern, keyword } of RESOLUTION_PATTERNS) {
       if (pattern.test(text)) {
         keywords.push(keyword);
       }
     }
 
     return keywords;
-  }
-
-  /**
-   * Check if text contains UI/technical "block" terminology that should NOT be treated as blockers
-   * Prevents false positives from UI component names like "add block dialog"
-   */
-  // moved UI context detection to TextAnalyzer.hasUIBlockContext
-
-  /**
-   * Check if a message text indicates hotfix context
-   * BUSINESS RULE: Hotfixes are ONLY made for blockers
-   */
-  private isHotfixContext(text: string): boolean {
-    const lowerText = text.toLowerCase();
-    
-    // Look for hotfix list patterns
-    const hotfixPatterns = [
-      /list\s+of\s+hotfixes/i,
-      /hotfixes?\s*:/i,
-      /•.*hotfix/i,
-      /-.*hotfix/i,
-      /hotfix\s+pr/i,
-      /hotfix\s+branch/i,
-      /prepare\s+a?\s*hotfix/i,
-      /should.*hotfix/i
-    ];
-
-    return hotfixPatterns.some(pattern => pattern.test(lowerText));
   }
 }

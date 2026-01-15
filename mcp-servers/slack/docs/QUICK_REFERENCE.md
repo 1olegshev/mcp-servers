@@ -230,6 +230,21 @@ const { oldest, latest } = DateUtils.getDateRange(args.date);
 
 // Format timestamps for display
 const readable = DateUtils.formatTimestamp(message.ts);
+
+// Format Date as YYYY-MM-DD string
+const dateStr = DateUtils.formatDateString(new Date());
+
+// Add/subtract days from a date
+const tomorrow = DateUtils.addDays(new Date(), 1);
+const yesterday = DateUtils.addDays(new Date(), -1);
+
+// Get start of day (midnight)
+const startOfDay = DateUtils.getStartOfDay('2026-01-15');
+
+// Get test search windows for phased lookback
+// Handles Monday logic (looks back to Friday/Saturday/Sunday)
+const windows = DateUtils.getTestSearchWindows('2026-01-15', 7);
+// Returns: { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After }
 ```
 
 ### 🕵️ Message Analysis
@@ -239,28 +254,59 @@ import { TextAnalyzer } from '../utils/analyzers.js';
 // Extract JIRA tickets
 const tickets = TextAnalyzer.extractTickets(message.text);
 
-// Check if message is from a bot
-const isBot = TextAnalyzer.isTestBot(message);
-
 // Analyze issue severity
 const { isBlocking, isCritical } = TextAnalyzer.analyzeIssueSeverity(message.text);
 
-// NEW: Guard against UI/technical "block" terminology
-if (TextAnalyzer.hasUIBlockContext(message.text)) {
-  // skip blocking classification
+// Check for hotfix context (BUSINESS RULE: Hotfixes are ONLY made for blockers)
+if (TextAnalyzer.isHotfixContext(message.text)) {
+  // Treat as blocker
 }
 
-// NEW: Ignore ad-blocker mentions unless tied to release context
+// Guard against UI/technical "block" terminology (false positives)
+if (TextAnalyzer.hasUIBlockContext(message.text)) {
+  // skip blocking classification - e.g., "add block dialog", "code block"
+}
+
+// Ignore ad-blocker mentions unless tied to release context
 if (TextAnalyzer.isAdBlockerNonReleaseContext(message.text)) {
   // skip blocking classification
 }
 ```
 
+### 📋 Central Pattern Registry
+```typescript
+import {
+  BLOCKING_PATTERNS,
+  CRITICAL_PATTERNS,
+  RESOLUTION_PATTERNS,
+  HOTFIX_PATTERNS,
+  UI_BLOCK_PATTERNS
+} from '../utils/patterns.js';
+
+// Check for explicit blocking patterns
+const hasBlocking = BLOCKING_PATTERNS.explicit.some(p => p.test(text));
+
+// Check for release context blocking
+const hasReleaseContext = BLOCKING_PATTERNS.releaseContext.test(text);
+
+// Detect critical with negation awareness
+const hasCriticalPositive = CRITICAL_PATTERNS.positive.some(p => p.test(text));
+const hasCriticalNegative = CRITICAL_PATTERNS.negative.some(p => p.test(text));
+const isCritical = hasCriticalPositive && !hasCriticalNegative;
+
+// Check resolution status
+const isResolved = RESOLUTION_PATTERNS.some(p => p.pattern.test(text));
+
+// Guard against UI terminology false positives
+const isUIBlock = UI_BLOCK_PATTERNS.some(p => p.test(text));
+```
+
 ### 🤖 LLM Classification
 ```typescript
 import { LLMClassifierService } from '../services/issue-detection/services/llm-classifier.service.js';
+import { OllamaClient } from '../clients/ollama-client.js';
 
-// Create classifier (uses Ollama with Qwen3 14B)
+// Create classifier (uses shared OllamaClient)
 const classifier = new LLMClassifierService();
 
 // Check if Ollama is available
@@ -277,6 +323,39 @@ if (await classifier.isAvailable()) {
 
 // In pipeline tests, disable LLM to avoid timeouts
 pipeline.setLLMClassification(false);
+```
+
+### 🤖 Using OllamaClient Directly
+```typescript
+import { OllamaClient } from '../clients/ollama-client.js';
+
+// Create client with defaults (localhost:11434, qwen3:30b)
+const client = new OllamaClient();
+
+// Or with custom settings
+const customClient = new OllamaClient('http://custom:8080', 'custom-model');
+
+// Check availability (cached after first call)
+if (await client.isAvailable()) {
+  // Generate response
+  const response = await client.generate('Your prompt here', {
+    temperature: 0.3,
+    num_predict: 256,
+    timeout: 30000
+  });
+
+  // Clean response (removes <think> tags, markdown)
+  const clean = OllamaClient.cleanResponse(response);
+
+  // Extract JSON from response
+  const json = OllamaClient.extractBalancedJSON(clean);
+  if (json) {
+    const parsed = JSON.parse(json);
+  }
+}
+
+// Reset availability cache if Ollama was restarted
+client.resetAvailabilityCache();
 ```
 
 ### 🧵 Thread Detection & Issue Analysis

@@ -238,24 +238,37 @@ src/
 ├── auth/
 │   └── slack-auth.ts        # XOXC/XOXD session auth bootstrap (SlackAuth)
 ├── clients/
-│   └── slack-client.ts      # WebClient wrapper (history, replies, search, permalink)
+│   ├── slack-client.ts      # WebClient wrapper (history, replies, search, permalink)
+│   └── ollama-client.ts     # Shared LLM client (Ollama/Qwen3) for classifiers
 ├── handlers/
 │   ├── messaging.ts         # Tools: send, list, history, search, reactions, get details
 │   └── analysis.ts          # Tools: get_auto_test_status, get_blocking_issues, overview
 ├── services/
-│   ├── issue-detector.ts    # Blocking/critical issue detection
+│   ├── issue-detector.ts    # Blocking/critical issue detection (pipeline orchestrator)
 │   ├── release-analyzer.ts  # Orchestrates test + issues into release overview
 │   ├── test-analyzer.ts     # Auto test analysis (Cypress/Playwright) + threads
 │   ├── thread-analyzer.ts   # Dedicated thread analysis and review status detection
-│   └── test-report-formatter.ts # Test result formatting with improved output styling
+│   ├── llm-test-classifier.service.ts  # LLM-based test status classification
+│   ├── test-report-formatter.ts # Test result formatting with improved output styling
+│   └── issue-detection/     # Modular issue detection pipeline
+│       ├── services/        # Specialized services (pattern, context, deduplication, LLM)
+│       └── models/          # Type definitions and interfaces
 ├── utils/
-│   ├── analyzers.ts         # Text analysis helpers (severity, details)
-│   ├── date-utils.ts        # Monday/prev-day windows, lookback
+│   ├── analyzers.ts         # Text analysis helpers (uses central patterns)
+│   ├── patterns.ts          # Central pattern registry (blockers, critical, hotfix, etc.)
+│   ├── date-utils.ts        # Date handling (getTestSearchWindows, addDays, etc.)
 │   ├── message-extractor.ts # Blocks/attachments extraction and parsing
 │   └── resolvers.ts         # Channel/user resolve utilities
 └── types/
     └── index.ts             # Shared types (SlackMessage, TestResult, etc.)
 ```
+
+### Key Architecture Notes
+
+- **LLM Classification is PRIMARY**: Pattern recognition (regex) serves as fallback when Ollama unavailable
+- **Central Pattern Registry**: All blocking/critical patterns defined in `utils/patterns.ts`
+- **Shared OllamaClient**: Single LLM client in `clients/ollama-client.ts` used by both classifiers
+- **DateUtils Extensions**: Includes `getTestSearchWindows()` for phased lookback with Monday logic
 
 ### Auto Test Analysis Contract
 

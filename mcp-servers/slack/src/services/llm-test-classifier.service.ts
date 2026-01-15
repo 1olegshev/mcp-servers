@@ -1,13 +1,14 @@
 /**
  * LLM-based Test Thread Classifier Service
  *
- * Uses local Ollama with Qwen3 14B to semantically classify test failure statuses
+ * Uses local Ollama with Qwen3 to semantically classify test failure statuses
  * from Slack thread replies. Provides more accurate classification than regex-only
  * approach, especially for ambiguous or complex replies.
  */
 
 import { SlackMessage } from '../types/index.js';
 import { extractAllMessageText } from '../utils/message-extractor.js';
+import { OllamaClient } from '../clients/ollama-client.js';
 
 export interface TestStatusClassification {
   testName: string;
@@ -23,18 +24,11 @@ export interface ThreadClassificationResult {
 }
 
 export class LLMTestClassifierService {
-  private ollamaUrl: string;
-  private model: string;
+  private ollamaClient: OllamaClient;
   private enabled: boolean;
-  private availabilityChecked: boolean = false;
-  private isOllamaAvailable: boolean = false;
 
-  constructor(
-    ollamaUrl: string = 'http://localhost:11434',
-    model: string = 'qwen3:30b-a3b-instruct-2507-q4_K_M'  // Non-thinking instruct model (July 2025)
-  ) {
-    this.ollamaUrl = ollamaUrl;
-    this.model = model;
+  constructor(ollamaClient?: OllamaClient) {
+    this.ollamaClient = ollamaClient || new OllamaClient();
     this.enabled = true;
   }
 
@@ -42,37 +36,7 @@ export class LLMTestClassifierService {
    * Check if Ollama is available and the model is loaded
    */
   async isAvailable(): Promise<boolean> {
-    if (this.availabilityChecked) {
-      return this.isOllamaAvailable;
-    }
-
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-
-      const response = await fetch(`${this.ollamaUrl}/api/tags`, {
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        this.isOllamaAvailable = false;
-        this.availabilityChecked = true;
-        return false;
-      }
-
-      const data = await response.json();
-      const models = data.models || [];
-      this.isOllamaAvailable = models.some((m: any) =>
-        m.name === this.model || m.name.startsWith(this.model.split(':')[0])
-      );
-      this.availabilityChecked = true;
-      return this.isOllamaAvailable;
-    } catch (error) {
-      this.isOllamaAvailable = false;
-      this.availabilityChecked = true;
-      return false;
-    }
+    return this.ollamaClient.isAvailable();
   }
 
   /**
@@ -172,46 +136,14 @@ Output ONLY valid JSON:
   }
 
   /**
-   * Call Ollama API
+   * Call Ollama API using shared client
    */
   private async callOllama(prompt: string): Promise<string> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-    try {
-      const response = await fetch(`${this.ollamaUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.model,
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.3,
-            num_predict: 512  // Non-thinking model outputs JSON directly
-          }
-        }),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        throw new Error(`Ollama API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      // Qwen3 puts thinking in separate field, actual output in response
-      // Prefer response (contains JSON), fall back to thinking if response empty
-      if (data.response && data.response.trim()) {
-        return data.response;
-      }
-      // If response is empty, check thinking field (token limit reached mid-think)
-      return data.thinking || '';
-    } catch (error) {
-      clearTimeout(timeout);
-      throw error;
-    }
+    return this.ollamaClient.generate(prompt, {
+      temperature: 0.3,
+      num_predict: 512,
+      timeout: 30000
+    });
   }
 
   /**
@@ -232,68 +164,12 @@ Output ONLY valid JSON:
   }
 
   /**
-   * Extract balanced JSON from text - handles nested braces correctly
-   */
-  private extractBalancedJSON(text: string): string | null {
-    const start = text.indexOf('{');
-    if (start === -1) return null;
-
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-
-    for (let i = start; i < text.length; i++) {
-      const char = text[i];
-
-      if (escape) {
-        escape = false;
-        continue;
-      }
-
-      if (char === '\\' && inString) {
-        escape = true;
-        continue;
-      }
-
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) continue;
-
-      if (char === '{') depth++;
-      else if (char === '}') {
-        depth--;
-        if (depth === 0) {
-          return text.substring(start, i + 1);
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
    * Parse LLM response and extract test statuses
    */
   private parseResponse(response: string, failedTests: string[]): ThreadClassificationResult {
-    // Remove thinking tokens if present (Qwen3 adds <think>...</think> blocks)
-    let cleanResponse = response;
-    cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/gi, '');
-
-    // Handle unclosed <think> tags - take everything after it
-    const thinkStart = cleanResponse.indexOf('<think>');
-    if (thinkStart !== -1) {
-      cleanResponse = cleanResponse.substring(thinkStart + 7); // Skip past <think>
-    }
-
-    // Trim whitespace and remove markdown code block markers
-    cleanResponse = cleanResponse.trim();
-    cleanResponse = cleanResponse.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '');
-
-    // Use balanced bracket extraction for proper JSON parsing
-    const jsonStr = this.extractBalancedJSON(cleanResponse);
+    // Use shared helpers for response cleaning and JSON extraction
+    const cleanResponse = OllamaClient.cleanResponse(response);
+    const jsonStr = OllamaClient.extractBalancedJSON(cleanResponse);
 
     if (!jsonStr) {
       console.error('No JSON found in LLM response. Raw response:', response.substring(0, 300));

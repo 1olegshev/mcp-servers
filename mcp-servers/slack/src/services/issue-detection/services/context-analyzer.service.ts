@@ -133,7 +133,7 @@ export class ContextAnalyzerService implements IContextAnalyzer {
       const text = (message.text || '').toLowerCase();
       const mentionsTicket = text.includes(ticketKey.toLowerCase());
       
-      if (mentionsTicket && this.isHotfixContext(text)) {
+      if (mentionsTicket && TextAnalyzer.isHotfixContext(text)) {
         isBlocking = true;
         foundInHotfixContext = true;
         hasHotfixCommitment = true;
@@ -291,14 +291,8 @@ export class ContextAnalyzerService implements IContextAnalyzer {
    * Extract tickets from a single message
    */
   private extractTicketsFromMessage(message: SlackMessage): JiraTicketInfo[] {
-    const text = message.text || '';
-    const ticketMatches = text.match(/\b([A-Z]+-\d+)\b/g) || [];
-
-    return ticketMatches.map(match => ({
-      key: match,
-      project: match.split('-')[0],
-      url: `https://mobitroll.atlassian.net/browse/${match}`
-    }));
+    const jiraBaseUrl = process.env.JIRA_BASE_URL || 'https://mobitroll.atlassian.net';
+    return TextAnalyzer.extractTickets(message.text || '', jiraBaseUrl);
   }
 
   /**
@@ -316,31 +310,4 @@ export class ContextAnalyzerService implements IContextAnalyzer {
     }
   }
 
-  /**
-   * Check if text contains UI/technical "block" terminology that should NOT be treated as blockers
-   * Prevents false positives from UI component names like "add block dialog"
-   */
-  // moved UI context detection to TextAnalyzer.hasUIBlockContext
-
-  /**
-   * Check if a message text indicates hotfix context
-   * BUSINESS RULE: Hotfixes are ONLY made for blockers
-   */
-  private isHotfixContext(text: string): boolean {
-    const lowerText = text.toLowerCase();
-    
-    // Look for hotfix list patterns
-    const hotfixPatterns = [
-      /list\s+of\s+hotfixes/i,
-      /hotfixes?\s*:/i,
-      /•.*hotfix/i,
-      /-.*hotfix/i,
-      /hotfix\s+pr/i,
-      /hotfix\s+branch/i,
-      /prepare\s+a?\s*hotfix/i,
-      /should.*hotfix/i
-    ];
-
-    return hotfixPatterns.some(pattern => pattern.test(lowerText));
-  }
 }

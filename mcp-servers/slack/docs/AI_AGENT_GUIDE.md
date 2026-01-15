@@ -19,7 +19,8 @@ src/
 ├── auth/
 │   └── slack-auth.ts        # 🔐 Authentication management
 ├── clients/
-│   └── slack-client.ts      # 🌐 Slack API wrapper
+│   ├── slack-client.ts      # 🌐 Slack API wrapper
+│   └── ollama-client.ts     # 🤖 Shared LLM client (Ollama/Qwen3)
 ├── services/                # 🏢 Business logic layer
 │   ├── issue-detector.ts    # 🔍 Main service (pipeline orchestrator)
 │   ├── issue-detection/     # 🏗️ Modular issue detection pipeline
@@ -28,10 +29,10 @@ src/
 │   │   │   └── pipeline-step.interface.ts      # 🎯 Pipeline contracts
 │   │   ├── services/
 │   │   │   ├── slack-message.service.ts       # 🌐 Slack API communication
-│   │   │   ├── blocker-pattern.service.ts     # 🕵️ Text pattern matching
+│   │   │   ├── blocker-pattern.service.ts     # 🕵️ Text pattern matching (uses central patterns)
 │   │   │   ├── context-analyzer.service.ts    # 🧵 Thread analysis & context
 │   │   │   ├── smart-deduplicator.service.ts  # 🔄 Duplicate detection
-│   │   │   └── llm-classifier.service.ts      # 🤖 LLM-based blocker classification (Ollama)
+│   │   │   └── llm-classifier.service.ts      # 🤖 LLM blocker classification (uses OllamaClient)
 │   │   ├── models/
 │   │   │   ├── service-interfaces.ts          # 📋 Service contracts
 │   │   │   ├── ticket-context.model.ts        # 🎫 Ticket data models
@@ -40,6 +41,7 @@ src/
 │   │   └── strategies/                         # 🎯 Extensible strategies
 │   ├── test-analyzer.ts     # 🧪 Analyze auto test results
 │   ├── thread-analyzer.ts   # 🧵 Dedicated thread review analysis
+│   ├── llm-test-classifier.service.ts  # 🤖 LLM test status classification (uses OllamaClient)
 │   ├── test-report-formatter.ts # 📋 Format test results with improved styling
 │   └── release-analyzer.ts  # 📊 Release status decisions
 ├── handlers/                # 🎛️ MCP tool handlers
@@ -48,9 +50,10 @@ src/
 │   └── analysis.ts          # 📈 Analysis tools
 ├── utils/                   # 🛠️ Utility functions
 │   ├── resolvers.ts         # 🔗 Channel/user resolution
-│   ├── analyzers.ts         # 🕵️ Text analysis
+│   ├── analyzers.ts         # 🕵️ Text analysis (uses central patterns)
+│   ├── patterns.ts          # 📋 Central pattern registry (blocking, critical, hotfix, etc.)
 │   ├── message-extractor.ts # 📄 Block/attachment parsing
-│   └── date-utils.ts        # 📅 Date handling
+│   └── date-utils.ts        # 📅 Date handling (getTestSearchWindows, addDays, etc.)
 └── types/
     └── index.ts             # 📋 TypeScript definitions
 ```
@@ -244,13 +247,57 @@ if (legacyBot) return new WebClient(legacyBot);
 
 #### 🕵️ **analyzers.ts**
 - **Purpose**: Text analysis and pattern detection
-- **Key Methods**: `extractTickets()`, `analyzeIssueSeverity()`, `isTestBot()`
-- **Patterns**: JIRA ticket extraction, severity keywords, bot detection
+- **Key Methods**: `extractTickets()`, `analyzeIssueSeverity()`, `isHotfixContext()`, `hasUIBlockContext()`
+- **Patterns**: Uses central pattern registry from `patterns.ts`
+- **Dependencies**: Imports from `patterns.ts` for consistent pattern matching
+
+#### 📋 **patterns.ts** (Central Pattern Registry)
+- **Purpose**: Single source of truth for all detection patterns
+- **Architecture Note**: LLM classification is PRIMARY; patterns are FALLBACK
+- **Exports**:
+  - `BLOCKING_PATTERNS` - explicit, contextual, releaseContext patterns
+  - `CRITICAL_PATTERNS` - positive, negative, windowNegation patterns
+  - `RESOLUTION_PATTERNS` - resolved, fixed, deployed, etc.
+  - `HOTFIX_PATTERNS` - hotfix list detection patterns
+  - `UI_BLOCK_PATTERNS` - false positive guards (UI terminology)
+  - `BLOCKING_KEYWORD_PATTERNS` - keyword extraction patterns
+- **Used by**: `analyzers.ts`, `blocker-pattern.service.ts`
 
 #### 📅 **date-utils.ts**
 - **Purpose**: Date handling and timestamp conversion
-- **Key Methods**: `getDateRange()`, `formatTimestamp()`, `getTodayDateString()`
+- **Key Methods**:
+  - `getDateRange()` - Get Unix timestamp range for a date
+  - `formatTimestamp()` - Convert Unix to readable
+  - `getTodayDateString()` - Today as YYYY-MM-DD
+  - `addDays()` - Add/subtract days from a date
+  - `formatDateString()` - Format Date as YYYY-MM-DD
+  - `getStartOfDay()` - Get midnight for a date
+  - `getTestSearchWindows()` - Phased lookback for test searches (handles Monday logic)
 - **Format**: Unix timestamp ↔ YYYY-MM-DD conversion
+
+### 🤖 **Clients Layer** (External APIs)
+
+#### 🌐 **slack-client.ts**
+- **Purpose**: Clean interface to Slack Web API
+- **Key Methods**: `sendMessage()`, `getChannelHistory()`, `resolveConversation()`
+- **Error Handling**: Converts Slack errors to MCP errors
+- **Dependencies**: SlackAuth, SlackResolver
+
+#### 🤖 **ollama-client.ts** (Shared LLM Client)
+- **Purpose**: Shared Ollama LLM client for both classifier services
+- **Model**: Qwen3 30B (configurable)
+- **Key Methods**:
+  - `isAvailable()` - Check if Ollama is available (cached)
+  - `generate()` - Generate LLM response with timeout
+  - `cleanResponse()` - Static: Remove thinking tokens, markdown markers
+  - `extractBalancedJSON()` - Static: Extract JSON from LLM response
+  - `resetAvailabilityCache()` - Reset availability check
+- **Used by**: `llm-classifier.service.ts`, `llm-test-classifier.service.ts`
+- **Features**:
+  - Lazy initialization (only connects when needed)
+  - Availability caching (avoids repeated health checks)
+  - Handles Qwen3 `<think>...</think>` tokens
+  - JSON extraction handles nested structures
 
 ## 🔄 Data Flow
 

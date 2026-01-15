@@ -3,6 +3,7 @@
  */
 
 import { SlackMessage, JiraTicketInfo } from '../types/index.js';
+import { CRITICAL_PATTERNS, HOTFIX_PATTERNS, UI_BLOCK_PATTERNS } from './patterns.js';
 
 export class TextAnalyzer {
   
@@ -25,46 +26,17 @@ export class TextAnalyzer {
    */
   static analyzeIssueSeverity(text: string): { isBlocking: boolean; isCritical: boolean } {
     const lower = (text || '').toLowerCase();
-    
+
     const blockingKeywords = ['blocker', 'blocking', 'release blocker', 'blocks release', 'block release', 'hotfix'];
     const isBlocking = blockingKeywords.some(keyword => lower.includes(keyword));
 
-    // Negation-aware critical detection (avoid false positives)
-    const criticalPositive = /(\bthis\s+is\s+)?critical(?!\s*path)\b|\burgent\b|\bhigh\s+priority\b/.test(lower);
-    const criticalNegative = /\bnot\s+(a\s+)?(super\s+)?high\s+priority\b|\bnot\s+critical\b|\bnot\s+urgent\b|\blow\s+priority\b|\bnot\s+.*tackle\s+immediately\b|\bno\s+need\s+to\s+tackle\s+immediately\b|\bnot\s+immediate(ly)?\b/.test(lower);
-    const windowNegation = /\b(?:not|isn['’]?t|no|doesn['’]?t(?:\s+have)?)\b(?:\W+\w+){0,4}\W+(?:critical|urgent|high\s+priority)\b/i.test(lower);
+    // Negation-aware critical detection using centralized patterns
+    const criticalPositive = CRITICAL_PATTERNS.positive.some(pattern => pattern.test(lower));
+    const criticalNegative = CRITICAL_PATTERNS.negative.some(pattern => pattern.test(lower));
+    const windowNegation = CRITICAL_PATTERNS.windowNegation.test(lower);
     const isCritical = criticalPositive && !criticalNegative && !windowNegation;
 
     return { isBlocking, isCritical };
-  }
-
-  /**
-   * Check if message is from a test automation bot
-   * Improved detection with more specific patterns
-   */
-  static isTestBot(message: SlackMessage): boolean {
-    // More specific bot patterns to reduce false positives
-    const botPatterns = [
-      'cypress', 'playwright', 'selenium', 'jest', 'mocha',
-      'automation', 'testbot', 'ci-bot', 'qa-bot',
-      'jenkins', 'github-actions', 'gitlab-ci', 'circle-ci',
-      'build-bot', 'deploy-bot'
-    ];
-    
-    const username = (message.username || message.bot_profile?.name || '').toLowerCase();
-    const text = (message.text || '').toLowerCase();
-    
-    // Check if username contains bot patterns
-    const usernameMatch = botPatterns.some(pattern => username.includes(pattern));
-    
-    // Check if text contains test-specific patterns
-    const testPatterns = [
-      'test suite', 'test run', 'tests passed', 'tests failed',
-      'test execution', 'automated test', 'e2e test'
-    ];
-    const textMatch = testPatterns.some(pattern => text.includes(pattern));
-    
-    return usernameMatch || textMatch;
   }
 
   /**
@@ -160,30 +132,7 @@ export class TextAnalyzer {
    */
   static hasUIBlockContext(text: string): boolean {
     const lowerText = (text || '').toLowerCase();
-
-    const uiBlockPatterns = [
-      /add\s+block\s+dialog/i,
-      /create\s+block\s+panel/i,
-      /block\s+dialog/i,
-      /block\s+panel/i,
-      /code\s+block/i,
-      /text\s+block/i,
-      /content\s+block/i,
-      /building\s+block/i,
-      /answer\s+blocks?/i,           // Kahoot answer buttons UI
-      /question\s+blocks?/i,         // Kahoot question UI
-      /image\s+blocks?/i,            // Image blocks in editor
-      /video\s+blocks?/i,            // Video blocks in editor
-      /slide\s+blocks?/i,            // Slide blocks
-      /layout\s+blocks?/i,           // Layout blocks
-      /blocks?\s+editor/i,           // Block editor references
-      /blocks?\s+component/i,        // Block component references
-      /insert\s+blocks?/i,           // Insert block action
-      /delete\s+blocks?/i,           // Delete block action
-      /labels\s+of\s+.*blocks/i      // "labels of answer blocks" pattern
-    ];
-
-    return uiBlockPatterns.some(pattern => pattern.test(lowerText));
+    return UI_BLOCK_PATTERNS.some(pattern => pattern.test(lowerText));
   }
 
   /**
@@ -197,5 +146,14 @@ export class TextAnalyzer {
 
     const hasReleaseContext = /\b(release|deploy(?:ment)?|prod(?:uction)?)\b/i.test(lowerText);
     return !hasReleaseContext;
+  }
+
+  /**
+   * Check if a message text indicates hotfix context
+   * BUSINESS RULE: Hotfixes are ONLY made for blockers
+   */
+  static isHotfixContext(text: string): boolean {
+    const lowerText = (text || '').toLowerCase();
+    return HOTFIX_PATTERNS.some(pattern => pattern.test(lowerText));
   }
 }

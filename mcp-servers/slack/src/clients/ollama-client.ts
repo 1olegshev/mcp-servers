@@ -1,0 +1,205 @@
+/**
+ * Shared Ollama LLM Client
+ * Used by both test classifier and blocker classifier services
+ */
+
+export interface OllamaGenerateOptions {
+  temperature?: number;
+  num_predict?: number;
+  timeout?: number;
+}
+
+export interface OllamaResponse {
+  model: string;
+  created_at: string;
+  response: string;
+  thinking?: string;
+  done: boolean;
+}
+
+export class OllamaClient {
+  private baseUrl: string;
+  private model: string;
+  private availabilityChecked: boolean = false;
+  private isAvailableCache: boolean = false;
+
+  constructor(
+    baseUrl: string = 'http://localhost:11434',
+    model: string = 'qwen3:30b-a3b-instruct-2507-q4_K_M'
+  ) {
+    this.baseUrl = baseUrl;
+    this.model = model;
+  }
+
+  /**
+   * Check if Ollama is available and the model is loaded
+   */
+  async isAvailable(): Promise<boolean> {
+    if (this.availabilityChecked) {
+      return this.isAvailableCache;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        this.isAvailableCache = false;
+        this.availabilityChecked = true;
+        return false;
+      }
+
+      const data = await response.json();
+      const models = data.models || [];
+      this.isAvailableCache = models.some((m: any) =>
+        m.name === this.model || m.name.startsWith(this.model.split(':')[0])
+      );
+      this.availabilityChecked = true;
+      return this.isAvailableCache;
+    } catch {
+      this.isAvailableCache = false;
+      this.availabilityChecked = true;
+      return false;
+    }
+  }
+
+  /**
+   * Reset availability cache (useful if Ollama was started after initial check)
+   */
+  resetAvailabilityCache(): void {
+    this.availabilityChecked = false;
+    this.isAvailableCache = false;
+  }
+
+  /**
+   * Generate a response from the model
+   */
+  async generate(prompt: string, options: OllamaGenerateOptions = {}): Promise<string> {
+    const {
+      temperature = 0.3,
+      num_predict = 512,
+      timeout = 30000
+    } = options;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          prompt,
+          stream: false,
+          options: {
+            temperature,
+            num_predict
+          }
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Ollama API error: ${response.status}`);
+      }
+
+      const data = await response.json() as OllamaResponse;
+
+      // Qwen3 puts thinking in separate field, actual output in response
+      if (data.response && data.response.trim()) {
+        return data.response;
+      }
+      return data.thinking || '';
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+
+  /**
+   * Clean response text - removes thinking tokens and extracts content
+   */
+  static cleanResponse(response: string): string {
+    let clean = response;
+
+    // Remove <think>...</think> blocks
+    clean = clean.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+    // Handle unclosed <think> tags - take everything after it
+    const thinkStart = clean.indexOf('<think>');
+    if (thinkStart !== -1) {
+      clean = clean.substring(thinkStart + 7);
+    }
+
+    // Trim and remove markdown code block markers
+    clean = clean.trim();
+    clean = clean.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '');
+
+    return clean;
+  }
+
+  /**
+   * Extract balanced JSON from text - handles nested braces correctly
+   */
+  static extractBalancedJSON(text: string): string | null {
+    const start = text.indexOf('{');
+    if (start === -1) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < text.length; i++) {
+      const char = text[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (char === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === '{') depth++;
+      else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          return text.substring(start, i + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get the model name
+   */
+  getModel(): string {
+    return this.model;
+  }
+
+  /**
+   * Get the base URL
+   */
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+}

@@ -327,14 +327,21 @@ cd mcp-servers/slack && npm run build
 │   │   ├── src/
 │   │   │   ├── server.ts           # Entry point, tool registration
 │   │   │   ├── auth/               # Authentication (slack-auth.ts)
-│   │   │   ├── clients/            # Slack API wrapper (slack-client.ts)
+│   │   │   ├── clients/            # API wrappers
+│   │   │   │   ├── slack-client.ts     # Slack Web API
+│   │   │   │   └── ollama-client.ts    # Shared LLM client (Ollama/Qwen3)
 │   │   │   ├── handlers/           # Tool handlers (messaging.ts, analysis.ts)
 │   │   │   ├── services/           # Business logic
 │   │   │   │   ├── issue-detector.ts
 │   │   │   │   ├── test-analyzer.ts
 │   │   │   │   ├── release-analyzer.ts
+│   │   │   │   ├── llm-test-classifier.service.ts  # LLM test classification
 │   │   │   │   └── issue-detection/  # Modular pipeline
-│   │   │   ├── utils/              # Helpers (analyzers.ts, date-utils.ts)
+│   │   │   ├── utils/              # Shared utilities
+│   │   │   │   ├── analyzers.ts        # Text analysis
+│   │   │   │   ├── patterns.ts         # Central pattern registry (blockers, critical, etc.)
+│   │   │   │   ├── date-utils.ts       # Date handling (getTestSearchWindows, addDays, etc.)
+│   │   │   │   └── resolvers.ts        # Channel/user resolution
 │   │   │   └── types/              # TypeScript definitions
 │   │   ├── docs/
 │   │   │   ├── AI_AGENT_GUIDE.md   # Detailed architecture
@@ -383,8 +390,11 @@ cd mcp-servers/slack && npm run build
 | Test analysis logic | [mcp-servers/slack/src/services/test-analyzer.ts](mcp-servers/slack/src/services/test-analyzer.ts) |
 | Date utilities | [mcp-servers/slack/src/utils/date-utils.ts](mcp-servers/slack/src/utils/date-utils.ts) |
 | Text analyzers | [mcp-servers/slack/src/utils/analyzers.ts](mcp-servers/slack/src/utils/analyzers.ts) |
+| Pattern registry | [mcp-servers/slack/src/utils/patterns.ts](mcp-servers/slack/src/utils/patterns.ts) |
+| Shared LLM client | [mcp-servers/slack/src/clients/ollama-client.ts](mcp-servers/slack/src/clients/ollama-client.ts) |
 | Type definitions | `types.ts` or `types/index.ts` in each server |
-| LLM classification | [mcp-servers/slack/src/services/issue-detection/services/llm-classifier.service.ts](mcp-servers/slack/src/services/issue-detection/services/llm-classifier.service.ts) |
+| LLM blocker classification | [mcp-servers/slack/src/services/issue-detection/services/llm-classifier.service.ts](mcp-servers/slack/src/services/issue-detection/services/llm-classifier.service.ts) |
+| LLM test classification | [mcp-servers/slack/src/services/llm-test-classifier.service.ts](mcp-servers/slack/src/services/llm-test-classifier.service.ts) |
 
 ### Adding a New Tool
 

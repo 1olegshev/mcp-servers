@@ -8,7 +8,7 @@ import { TEST_BOT_IDS, JENKINS_PATTERN, EARLY_MORNING_CUTOFF, MAX_LOOKBACK_DAYS 
 import { TextAnalyzer } from '../utils/analyzers.js';
 import { DateUtils } from '../utils/date-utils.js';
 import { TestResult, SlackMessage } from '../types/index.js';
-import { extractAllMessageText, isBotMessage, parseTestResultsFromText } from '../utils/message-extractor.js';
+import { extractAllMessageText, parseTestResultsFromText } from '../utils/message-extractor.js';
 import { ThreadAnalyzerService } from './thread-analyzer.js';
 import { TestReportFormatter } from './test-report-formatter.js';
 // Note: Debug logging can be enabled for troubleshooting
@@ -35,38 +35,13 @@ export class TestAnalyzerService {
   }
 
   async analyzeTestResults(
-    channel: string, 
+    channel: string,
     date?: string,
     messages?: SlackMessage[]
   ): Promise<TestResult[]> {
-    // Helper: date math and query builders
-    const startOfToday = (() => {
-      const d = date ? (date === 'today' ? new Date() : new Date(date)) : new Date();
-      const n = new Date(d);
-      n.setHours(0, 0, 0, 0);
-      return n;
-    })();
-
-    const fmtDate = (d: Date) => d.toISOString().split('T')[0];
-    const addDays = (d: Date, delta: number) => new Date(d.getTime() + delta * 24 * 60 * 60 * 1000);
-    const beforeDateStr = fmtDate(addDays(startOfToday, 1)); // Tomorrow, so today is included in search ranges
-    const todayDateStr = fmtDate(new Date());
-
-    // Build phase windows
-    const dayOfWeek = (date ? (date === 'today' ? new Date() : new Date(date)) : new Date()).getDay(); // 0 Sun, 1 Mon
-    const phase1Dates: string[] = [];
-    if (dayOfWeek === 1) {
-      // Monday: try Sun -> Sat -> Fri
-      phase1Dates.push(fmtDate(addDays(startOfToday, -1))); // Sunday
-      phase1Dates.push(fmtDate(addDays(startOfToday, -2))); // Saturday
-      phase1Dates.push(fmtDate(addDays(startOfToday, -3))); // Friday
-    } else {
-      // Other days: yesterday only
-      phase1Dates.push(fmtDate(addDays(startOfToday, -1)));
-    }
-    // Always include today as a search window for each suite
-    phase1Dates.unshift(todayDateStr);
-    const phase2After = fmtDate(addDays(startOfToday, -MAX_LOOKBACK_DAYS));
+    // Use DateUtils for date window calculations
+    const { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After } =
+      DateUtils.getTestSearchWindows(date, MAX_LOOKBACK_DAYS);
 
     // Suites mapping
     const suiteBots: Array<{ id: string; name: 'Cypress (general)' | 'Cypress (unverified)' | 'Playwright' }> = [
@@ -147,7 +122,7 @@ export class TestAnalyzerService {
     const historyFallbackNeeded = found.size < suiteBots.length; // Always fallback if missing results
     if (historyFallbackNeeded) {
       const oldestTs = (new Date(phase2After + 'T00:00:00Z').getTime() / 1000).toString();
-      const latestTs = ((addDays(startOfToday, 1).getTime() - 1) / 1000).toString(); // Include today by using end of today
+      const latestTs = ((DateUtils.addDays(startOfToday, 1).getTime() - 1) / 1000).toString(); // Include today by using end of today
       // Fetch smaller page and scan newest-first
       const history = await this.slackClient.getChannelHistoryForDateRange(channel, oldestTs, latestTs, 200);
       history.sort((a, b) => parseFloat(b.ts || '0') - parseFloat(a.ts || '0'));

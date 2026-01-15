@@ -5,6 +5,7 @@
  */
 
 import { SlackMessage } from '../../../types/index.js';
+import { OllamaClient } from '../../../clients/ollama-client.js';
 
 export interface ClassificationResult {
   isBlocker: boolean;
@@ -13,25 +14,12 @@ export interface ClassificationResult {
   ticketKey?: string;
 }
 
-export interface OllamaResponse {
-  model: string;
-  created_at: string;
-  response: string;
-  thinking?: string; // Qwen3 may put thinking in separate field
-  done: boolean;
-}
-
 export class LLMClassifierService {
-  private ollamaUrl: string;
-  private model: string;
+  private ollamaClient: OllamaClient;
   private enabled: boolean;
 
-  constructor(
-    ollamaUrl: string = 'http://localhost:11434',
-    model: string = 'qwen3:30b-a3b-instruct-2507-q4_K_M'  // Non-thinking instruct model
-  ) {
-    this.ollamaUrl = ollamaUrl;
-    this.model = model;
+  constructor(ollamaClient?: OllamaClient) {
+    this.ollamaClient = ollamaClient || new OllamaClient();
     this.enabled = true;
   }
 
@@ -39,15 +27,7 @@ export class LLMClassifierService {
    * Check if Ollama is available
    */
   async isAvailable(): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.ollamaUrl}/api/tags`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(2000)
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
+    return this.ollamaClient.isAvailable();
   }
 
   /**
@@ -128,76 +108,31 @@ Output JSON only:
   }
 
   /**
-   * Call Ollama API
+   * Call Ollama API using shared client
    */
   private async callOllama(prompt: string): Promise<string> {
-    const response = await fetch(`${this.ollamaUrl}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.model,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3, // Low temperature for consistent classification
-          num_predict: 256
-        },
-        think: false  // Disable Qwen3 thinking for faster response
-      }),
-      signal: AbortSignal.timeout(30000) // 30 second timeout
+    return this.ollamaClient.generate(prompt, {
+      temperature: 0.3,
+      num_predict: 256,
+      timeout: 30000
     });
-
-    if (!response.ok) {
-      throw new Error(`Ollama API error: ${response.status}`);
-    }
-
-    const data = await response.json() as OllamaResponse;
-    // Qwen3 puts thinking in separate field, actual output in response
-    // Prefer response (contains JSON), fall back to thinking if response empty
-    if (data.response && data.response.trim()) {
-      return data.response;
-    }
-    return data.thinking || '';
   }
 
   /**
    * Parse the LLM response into a structured result
-   * Handles thinking tokens (<think>...</think>) and extracts JSON
+   * Uses shared helpers for response cleaning and JSON extraction
    */
   private parseResponse(response: string, message: SlackMessage): ClassificationResult {
     try {
-      // Remove thinking tokens if present
-      let cleanResponse = response;
+      // Use shared helpers for response cleaning and JSON extraction
+      const cleanResponse = OllamaClient.cleanResponse(response);
+      const jsonStr = OllamaClient.extractBalancedJSON(cleanResponse);
 
-      // Remove <think>...</think> blocks
-      cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/gi, '');
-
-      // Also handle unclosed <think> tags (model might not close them)
-      const thinkStart = cleanResponse.indexOf('<think>');
-      if (thinkStart !== -1) {
-        // Look for JSON after the thinking
-        const afterThink = cleanResponse.substring(thinkStart);
-        const jsonInThink = afterThink.match(/\{[^{}]*"isBlocker"[^{}]*\}/);
-        if (jsonInThink) {
-          cleanResponse = jsonInThink[0];
-        }
+      if (!jsonStr) {
+        throw new Error('No JSON found in response');
       }
 
-      // Extract JSON from response (handle potential markdown code blocks)
-      const jsonMatch = cleanResponse.match(/\{[^{}]*"isBlocker"[^{}]*\}/);
-      if (!jsonMatch) {
-        // Try to find any JSON object
-        const anyJson = cleanResponse.match(/\{[\s\S]*?\}/);
-        if (anyJson) {
-          cleanResponse = anyJson[0];
-        } else {
-          throw new Error('No JSON found in response');
-        }
-      } else {
-        cleanResponse = jsonMatch[0];
-      }
-
-      const parsed = JSON.parse(cleanResponse);
+      const parsed = JSON.parse(jsonStr);
 
       // Extract ticket key from message
       const ticketMatch = (message.text || '').match(/\b([A-Z]+-\d+)\b/);

@@ -143,17 +143,7 @@ export class ThreadAnalyzerService {
     replies: SlackMessage[],
     originalMessage: SlackMessage
   ): { hasActivity: boolean; summary: string; failedTests: string[]; statusNote: string; perTestStatus: Record<string, string>; sectionSummary: string } {
-    const collectText = (m: SlackMessage) => {
-      const parts: string[] = [];
-      if (m.text) parts.push(m.text);
-      if ((m as any).blocks) {
-        parts.push(extractAllMessageText(m).extractedFromBlocks || '');
-      }
-      if ((m as any).attachments) {
-        parts.push(extractAllMessageText(m).extractedFromAttachments || '');
-      }
-      return parts.filter(Boolean).join(' ');
-    };
+    const collectText = (m: SlackMessage) => extractAllMessageText(m).text;
 
     // Extract failed tests from original message even if no replies yet
     const originalText = collectText(originalMessage);

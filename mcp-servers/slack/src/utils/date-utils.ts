@@ -108,4 +108,64 @@ export class DateUtils {
   static formatTimestamp(timestamp: string): string {
     return new Date(parseFloat(timestamp) * 1000).toLocaleString();
   }
+
+  /**
+   * Format a Date as YYYY-MM-DD string
+   */
+  static formatDateString(date: Date): string {
+    return date.toISOString().split('T')[0];
+  }
+
+  /**
+   * Add (or subtract) days from a date
+   */
+  static addDays(date: Date, days: number): Date {
+    return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  /**
+   * Get start of day (midnight) for a given date string or today
+   */
+  static getStartOfDay(dateStr?: string): Date {
+    const d = dateStr ? (dateStr === 'today' ? new Date() : new Date(dateStr)) : new Date();
+    const result = new Date(d);
+    result.setHours(0, 0, 0, 0);
+    return result;
+  }
+
+  /**
+   * Build test search windows for phased lookback
+   * Returns dates to search in priority order, plus a fallback cutoff
+   */
+  static getTestSearchWindows(dateStr?: string, maxLookbackDays: number = 7): {
+    startOfToday: Date;
+    todayDateStr: string;
+    beforeDateStr: string;
+    phase1Dates: string[];
+    phase2After: string;
+  } {
+    const startOfToday = this.getStartOfDay(dateStr);
+    const todayDateStr = this.formatDateString(new Date());
+    const beforeDateStr = this.formatDateString(this.addDays(startOfToday, 1));
+
+    const dayOfWeek = (dateStr ? (dateStr === 'today' ? new Date() : new Date(dateStr)) : new Date()).getDay();
+    const phase1Dates: string[] = [];
+
+    if (dayOfWeek === 1) {
+      // Monday: try Sun -> Sat -> Fri
+      phase1Dates.push(this.formatDateString(this.addDays(startOfToday, -1))); // Sunday
+      phase1Dates.push(this.formatDateString(this.addDays(startOfToday, -2))); // Saturday
+      phase1Dates.push(this.formatDateString(this.addDays(startOfToday, -3))); // Friday
+    } else {
+      // Other days: yesterday only
+      phase1Dates.push(this.formatDateString(this.addDays(startOfToday, -1)));
+    }
+
+    // Always include today as a search window for each suite
+    phase1Dates.unshift(todayDateStr);
+
+    const phase2After = this.formatDateString(this.addDays(startOfToday, -maxLookbackDays));
+
+    return { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After };
+  }
 }
