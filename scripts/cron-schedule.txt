@@ -1,9 +1,13 @@
 # MCP Release Status Automation Cron Schedule
 #
-# Production schedule: Daily release status at 11:15 local time on weekdays (Mon-Fri)
-# Note: macOS cron ignores TZ= for scheduling, so we use local time directly
-# This runs at 11:15 CET (winter) and 11:15 CEST (summer)
-15 11 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
+# NOTE: This file is DEPRECATED. We now use launchd + pmset for scheduling,
+# which allows the Mac to wake from sleep to run the job.
+# See README.md for the current setup using:
+#   - ~/Library/LaunchAgents/com.mcp.release-status.plist
+#   - sudo pmset repeat wakeorpoweron MTWRF 11:10:00
+#
+# Legacy cron schedule (for reference only):
+# 15 11 * * 1-5 /Users/olegshevchenko/Sourses/MCP/scripts/cron-release-wrapper.sh
 
 # To install this schedule:
 # crontab /Users/olegshevchenko/Sourses/MCP/scripts/cron-schedule.txt

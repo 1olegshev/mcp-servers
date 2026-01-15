@@ -14,34 +14,58 @@ The main Node.js script that:
 - Logs all activities with timestamps
 
 ### `cron-release-wrapper.sh`
-Bash wrapper script for cron execution that:
+Bash wrapper script for launchd/cron execution that:
 - Sets up the proper Node.js environment (PATH, NODE_ENV)
 - Changes to the correct working directory
+- Handles DST-aware scheduling (runs at consistent UTC time year-round)
 - Redirects output to log files
 - Handles exit codes properly
 
 ## Scheduling
 
-The system is scheduled to run via cron:
+The system uses macOS `launchd` with `pmset` wake scheduling to run even when the Mac is asleep.
+
+### Schedule Details
+- **Target time:** 10:15 UTC (18:15 Philippines time) - consistent year-round
+- **Winter (CET, UTC+1):** runs at 11:15 local time
+- **Summer (CEST, UTC+2):** runs at 12:15 local time
+
+This ensures the report is always sent at the same time relative to colleagues in Philippines (no DST).
+
+### Setup Components
+
+1. **launchd plist:** `~/Library/LaunchAgents/com.mcp.release-status.plist`
+   - Triggers at both 11:15 and 12:15 on weekdays
+   - Script checks DST and runs at appropriate time
+
+2. **pmset wake schedule:** Wakes Mac at 11:10 on weekdays
+   ```bash
+   sudo pmset repeat wakeorpoweron MTWRF 11:10:00
+   ```
+
+### View current setup:
 ```bash
-# Current schedule: Every weekday at 12:05 PM
-# NOTE: Cron requires absolute paths - adjust to your project location
-5 12 * * 1-5 $PROJECT_ROOT/scripts/cron-release-wrapper.sh
+# Check launchd job
+launchctl list | grep com.mcp.release-status
+
+# Check wake schedule
+pmset -g sched
 ```
 
-### View current cron jobs:
+### Reload launchd job:
 ```bash
-crontab -l
+launchctl bootout gui/$(id -u)/com.mcp.release-status
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mcp.release-status.plist
 ```
 
-### Edit cron jobs:
+### Remove scheduling:
 ```bash
-crontab -e
-```
+# Remove launchd job
+launchctl bootout gui/$(id -u)/com.mcp.release-status
+rm ~/Library/LaunchAgents/com.mcp.release-status.plist
 
-### Remove all cron jobs:
-```bash
-crontab -r
+# Remove wake schedule
+sudo pmset repeat cancel
 ```
 
 ## Logs
