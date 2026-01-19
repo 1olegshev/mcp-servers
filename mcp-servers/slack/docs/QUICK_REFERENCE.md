@@ -22,8 +22,8 @@ echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | node dist/server.js
 # Install Ollama (macOS)
 brew install ollama
 
-# Pull the Qwen3 14B model (~9GB download)
-ollama pull qwen3:14b
+# Pull the Qwen3 30B model (~9GB download)
+ollama pull qwen3:30b
 
 # Start Ollama server (usually auto-starts on macOS)
 ollama serve
@@ -32,7 +32,7 @@ ollama serve
 curl http://localhost:11434/api/tags
 
 # Test LLM classification manually
-ollama run qwen3:14b "Is 'PROJ-123 is blocking the release' a release blocker? Answer as JSON."
+ollama run qwen3:30b "Is 'PROJ-123 is blocking the release' a release blocker? Answer as JSON."
 ```
 
 **Note**: The cron job (`scripts/cron-release-wrapper.sh`) automatically starts Ollama when your Mac wakes, waits for it to be ready, and stops it after the job completes.
@@ -515,15 +515,15 @@ curl http://localhost:11434/api/tags
 # Start Ollama manually
 ollama serve
 
-# Check if qwen3:14b is installed
+# Check if qwen3:30b is installed
 ollama list
-# Should show qwen3:14b
+# Should show qwen3:30b
 
 # Re-pull model if corrupted
-ollama pull qwen3:14b
+ollama pull qwen3:30b
 
 # Test LLM directly
-ollama run qwen3:14b "Hello, respond with just 'OK'"
+ollama run qwen3:30b "Hello, respond with just 'OK'"
 
 # Check cron log for Ollama startup issues
 tail -50 logs/cron-auto-release.log | grep -i ollama

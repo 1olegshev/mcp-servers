@@ -158,7 +158,7 @@ if (legacyBot) return new WebClient(legacyBot);
 - **File**: `services/llm-classifier.service.ts`
 - **Purpose**: Semantic classification of messages as release blockers using local LLM
 - **Methods**: `classifyMessage()`, `isAvailable()`, `buildPrompt()`, `parseResponse()`
-- **LLM Backend**: Ollama with Qwen3 14B model (local, runs on Mac)
+- **LLM Backend**: Ollama with Qwen3 30B model (local, runs on Mac)
 - **Features**:
   - Semantic understanding of blocker context (vs. regex-only)
   - Handles Qwen3 thinking tokens (`<think>...</think>`)
@@ -489,7 +489,7 @@ date -r 1768296887 '+%Y-%m-%d %H:%M'
 1. **Prerequisites**: Install Ollama and pull model:
    ```bash
    brew install ollama
-   ollama pull qwen3:14b
+   ollama pull qwen3:30b
    ollama serve  # Start server (or it auto-starts on macOS)
    ```
 2. **Testing LLM classification**: The classifier auto-detects Ollama availability
@@ -626,7 +626,7 @@ The system analyzes multiple factors to determine release readiness:
  - **Ad-blocker Guard**: Mentions of "ad blocker/ad-blocker" are ignored unless a nearby release/deploy/prod context is present (`TextAnalyzer.isAdBlockerNonReleaseContext()`).
  - **LLM Classification (NEW)**: Two-layer detection system:
    1. **Regex layer**: Fast pattern matching catches obvious cases
-   2. **LLM layer**: Semantic classification filters false positives using Qwen3 14B via local Ollama
+   2. **LLM layer**: Semantic classification filters false positives using Qwen3 30B via local Ollama
    - Returns confidence scores and reasoning for transparency
    - Gracefully falls back to regex-only when Ollama unavailable
 
