@@ -187,31 +187,37 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Key Methods**: `checkForReview()`, `analyzeThreadReplies()`, `mergeClassifications()`
 - **Analysis**: Manual rerun results, blocking status, PR/revert mentions
 - **Output**: Structured review summaries with per-test status
-- **LLM Integration (NEW)**: Uses `LLMTestClassifierService` for semantic classification when Ollama available
-- **Merge Logic**: LLM results take precedence when regex is unclear or LLM has high confidence (≥70%)
+- **LLM Integration**: Uses `LLMTestClassifierService` for semantic classification when Ollama available
+- **Merge Logic**: LLM results take precedence when:
+  1. Regex is unclear ("needs review")
+  2. LLM has high confidence (≥70%)
+  3. LLM detects explicit positive signals (resolved, not_blocking, fix_in_progress, tracked) with moderate confidence (≥50%)
 
-#### 🤖 **llm-test-classifier.service.ts** (NEW)
+#### 🤖 **llm-test-classifier.service.ts**
 - **Purpose**: LLM-based classification of test failure statuses from thread replies
 - **Methods**: `classifyThread()`, `isAvailable()`, `buildPrompt()`, `parseResponse()`
-- **LLM Backend**: Ollama with Qwen3 14B (same as blocker classifier)
+- **LLM Backend**: Ollama with Qwen3 30B (shared client via `ollama-client.ts`)
 - **Classification Categories**:
-  - ✅ resolved, ✅ not blocking
-  - 🔄 assigned, 🔄 rerun in progress, 🔄 fix in progress
+  - ✅ resolved, ✅ not_blocking
+  - 🔄 fix_in_progress, 🔄 assigned, 🔄 rerun in progress
+  - 📋 tracked (known issue with existing ticket)
   - 🔍 investigating, ℹ️ acknowledged, ℹ️ explained
   - ⚠️ flakey/env-specific, 🛠️ test update required
-  - ❌ still failing, ❓ needs review
+  - ❌ still_failing, 🚨 needs_attention, ❓ unclear
 - **Features**:
+  - Business context in prompt (release readiness decisions)
   - Full thread summarization (entire thread sent to LLM)
   - Per-test classification with confidence scores
   - Graceful fallback to regex when Ollama unavailable
 
-#### 📋 **test-report-formatter.ts** (NEW)
+#### 📋 **test-report-formatter.ts**
 - **Purpose**: Format test results with improved styling and clarity
 - **Key Methods**: `format()`, `getLatestByType()`
-- **Features**: 
+- **Features**:
   - Multi-line formatting: "✅" on first line, "All tests passed" on second
   - Clear spacing between test sections
   - Detailed failure information with review context
+  - Low confidence warnings (⚠️NN%) shown when LLM confidence < 70%
 - **Output**: Slack-friendly markdown with enhanced readability. Suites that have unresolved/unclear tests now surface a "Needs Review" status until every failure is explicitly cleared.
 
 #### 📊 **release-analyzer.ts**
