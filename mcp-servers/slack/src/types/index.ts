@@ -73,6 +73,7 @@ export interface TestResult {
   failedTests?: string[];      // Extracted from thread/content
   statusNote?: string;         // Resolution/status note without the failed-tests prefix
   perTestStatus?: Record<string, string>; // Map of normalized test name -> status note
+  perTestConfidence?: Record<string, number>; // LLM confidence for each test (0-100)
   sectionSummary?: string;     // Section-level status computed by thread analyzer
 }
 

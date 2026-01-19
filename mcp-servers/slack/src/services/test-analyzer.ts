@@ -247,6 +247,7 @@ export class TestAnalyzerService {
         failedTests: threadAnalysis.failedTests,
         statusNote: threadAnalysis.statusNote,
         perTestStatus: threadAnalysis.perTestStatus,
+        perTestConfidence: threadAnalysis.perTestConfidence,
         sectionSummary: threadAnalysis.sectionSummary,
       });
     }

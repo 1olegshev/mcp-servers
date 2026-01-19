@@ -44,27 +44,39 @@ export class TestReportFormatter {
               .replace(/\.(test|spec)\.[jt]sx?$/i, '')
               .replace(/\.[jt]sx?$/i, '')
               .replace(/[.,…\s]+$/g, '');
-            
-            // Try to find status with flexible matching
+
+            // Try to find status and confidence with flexible matching
             let status = '';
+            let confidence: number | undefined;
+            let matchedKey = '';
+
             if (test.perTestStatus) {
               // First try exact match
               if (test.perTestStatus[display]) {
                 status = test.perTestStatus[display];
+                matchedKey = display;
               } else {
                 // Try partial matching for flexible test name variations
                 const statusKeys = Object.keys(test.perTestStatus);
-                const matchingKey = statusKeys.find(key => 
+                const matchingKey = statusKeys.find(key =>
                   key.includes(display) || display.includes(key) ||
                   key.replace(/_/g, '-') === display.replace(/_/g, '-')
                 );
                 if (matchingKey) {
                   status = test.perTestStatus[matchingKey];
+                  matchedKey = matchingKey;
                 }
               }
             }
-            
-            const note = ` — ${status || 'unclear'}`;
+
+            // Get confidence for this test if available
+            if (matchedKey && test.perTestConfidence && test.perTestConfidence[matchedKey] !== undefined) {
+              confidence = test.perTestConfidence[matchedKey];
+            }
+
+            // Show confidence warning only if below 70%
+            const confidenceWarning = (confidence !== undefined && confidence < 70) ? ` ⚠️${confidence}%` : '';
+            const note = ` — ${status || 'unclear'}${confidenceWarning}`;
             output += `  • *${display}*${note}\n`;
           }
           // Use section summary from thread analyzer

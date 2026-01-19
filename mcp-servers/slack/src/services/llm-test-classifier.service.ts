@@ -109,30 +109,40 @@ export class LLMTestClassifierService {
     // Number the tests for easier reference
     const numberedTests = failedTests.map((t, i) => `${i + 1}. ${t}`).join('\n');
 
-    return `Classify each test failure based on the thread discussion.
+    return `You are analyzing a Slack thread about automated test failures to determine release readiness.
 
-Failed tests:
+CONTEXT: This is for a QA release decision. Tests that are "not_blocking" or "resolved" mean we CAN release.
+Tests "still_failing" or "needs_attention" mean we should NOT release until addressed.
+
+Failed tests to classify:
 ${numberedTests}
 
-Thread:
+Thread conversation:
 ${threadContent}
 
-STATUS DEFINITIONS (important distinctions):
-- flakey: "passing locally" or "passes for me" = environment-specific, not a real bug
-- needs_attention: "failing locally" = confirmed real issue that needs fixing
-- resolved: explicitly fixed or passed on rerun
-- investigating: someone said they'll look into it
-- still_failing: confirmed still broken, "same as before"
-- unclear: test NOT MENTIONED in any reply = awaiting review
+STATUS OPTIONS (use exactly these values):
+- resolved: Test passed on rerun, or someone confirmed it's fixed ("I fixed it", "passing now", "fix merged", "fixed them so they pass")
+- not_blocking: Explicitly stated as not blocking release ("not blocking", "behind a feature flag", "not a release blocker", "behind the role", "not blocking as per")
+- fix_in_progress: Someone is actively fixing or said they fixed it for next run ("I'll fix", "working on fix", "I have fixed them", "will check", "need to update the spec")
+- flakey: Passes locally but fails in CI - environment-specific, NOT a real bug ("passing locally", "passed after rerun", "works for me locally", "can be stabilised")
+- needs_attention: Confirmed failing locally - real bug that needs fixing ("failing locally")
+- investigating: Someone is looking into it ("I'll look", "checking", "will investigate", "I'll have a look")
+- tracked: Known issue with existing ticket ("there's a ticket", "open ticket", "same as last time", link to Jira/KAHOOT-)
+- still_failing: Confirmed still broken after fix attempts ("still failing", "same issue", "not fixed yet")
+- unclear: Test NOT mentioned in ANY reply - no one has commented on it yet
 
-IMPORTANT RULES:
-1. If someone says a test is "passing locally" → flakey
-2. If someone says a test is "failing locally" → needs_attention (NOT flakey!)
-3. If a test is NOT mentioned by anyone in the thread → unclear (awaiting review)
-4. If @UserX is tagged for a test and UserX replies without mentioning a specific test, assume they're discussing the test they were tagged for
+CRITICAL RULES:
+1. "passing locally" or "passed after rerun" → flakey (environment-specific)
+2. "failing locally" → needs_attention (confirmed real bug!)
+3. "not blocking" or "behind a role/flag" → not_blocking (safe for release!)
+4. "I fixed it" or "I have fixed them for next run" → fix_in_progress
+5. If a user is tagged (cc @someone) for a test and that user replies, assume they're discussing that test
+6. "same as last time" + ticket reference → tracked
+7. If test is NOT mentioned in any human reply → unclear
+8. Look at the LATEST status mentioned - if someone said "failing locally" then later "I fixed it", use fix_in_progress
 
-Output ONLY valid JSON:
-{"tests":[{"id":1,"status":"flakey","confidence":80}]}`;
+Output ONLY valid JSON (no markdown, no explanation):
+{"tests":[{"id":1,"status":"not_blocking","confidence":90,"reason":"User explicitly said not blocking"}]}`;
   }
 
   /**
@@ -153,6 +163,8 @@ Output ONLY valid JSON:
     const statusMap: Record<string, string> = {
       'resolved': '✅ resolved',
       'not_blocking': '✅ not blocking',
+      'fix_in_progress': '🔄 fix in progress',
+      'tracked': '📋 tracked (known issue)',
       'investigating': '🔍 investigating',
       'flakey': '⚠️ flakey/env-specific',
       'flaky': '⚠️ flakey/env-specific',

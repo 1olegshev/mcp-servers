@@ -43,7 +43,7 @@ export class ThreadAnalyzerService {
     message: SlackMessage,
     channel: string,
     status: string
-  ): Promise<{ hasReview: boolean; summary: string; failedTests?: string[]; statusNote?: string; perTestStatus?: Record<string, string>; sectionSummary?: string }> {
+  ): Promise<{ hasReview: boolean; summary: string; failedTests?: string[]; statusNote?: string; perTestStatus?: Record<string, string>; perTestConfidence?: Record<string, number>; sectionSummary?: string }> {
     // Skip non-failed tests
     if (status !== 'failed') {
       return { hasReview: false, summary: '' };
@@ -71,7 +71,7 @@ export class ThreadAnalyzerService {
 
             if (llmResult.usedLLM && Object.keys(llmResult.perTestStatus).length > 0) {
               // LLM succeeded - merge results, preferring LLM for high-confidence classifications
-              const mergedPerTestStatus = this.mergeClassifications(
+              const { merged: mergedPerTestStatus, confidence: perTestConfidence } = this.mergeClassifications(
                 regexAnalysis.perTestStatus,
                 llmResult.perTestStatus
               );
@@ -86,6 +86,7 @@ export class ThreadAnalyzerService {
                 failedTests: regexAnalysis.failedTests,
                 statusNote: regexAnalysis.statusNote,
                 perTestStatus: mergedPerTestStatus,
+                perTestConfidence,
                 sectionSummary,
               };
             }
@@ -113,30 +114,38 @@ export class ThreadAnalyzerService {
 
   /**
    * Merge regex and LLM classifications
-   * LLM takes precedence for high-confidence results or when regex is unclear
+   * LLM takes precedence for explicit signals that regex might miss
    */
   private mergeClassifications(
     regexStatus: Record<string, string>,
     llmStatus: Record<string, TestStatusClassification>
-  ): Record<string, string> {
+  ): { merged: Record<string, string>; confidence: Record<string, number> } {
     const merged: Record<string, string> = { ...regexStatus };
+    const confidence: Record<string, number> = {};
+
+    // Positive statuses that indicate explicit human decisions - trust LLM for these
+    const explicitPositiveStatuses = ['resolved', 'not blocking', 'fix in progress', 'tracked', 'flakey'];
 
     for (const [testName, llmResult] of Object.entries(llmStatus)) {
       const regexResult = regexStatus[testName];
+      const llmStatusLower = llmResult.status.toLowerCase();
 
       // LLM takes precedence if:
       // 1. Regex result is unclear ("❓ needs review")
       // 2. LLM has high confidence (>= 70%)
       // 3. Regex didn't find this test
+      // 4. LLM detected an explicit positive signal (resolved, not blocking, etc.) with moderate confidence
       const regexIsUnclear = !regexResult || regexResult.includes('needs review') || regexResult.includes('unclear');
       const llmIsConfident = llmResult.confidence >= 70;
+      const llmFoundExplicitPositive = explicitPositiveStatuses.some(s => llmStatusLower.includes(s)) && llmResult.confidence >= 50;
 
-      if (regexIsUnclear || llmIsConfident) {
+      if (regexIsUnclear || llmIsConfident || llmFoundExplicitPositive) {
         merged[testName] = llmResult.status;
+        confidence[testName] = llmResult.confidence;
       }
     }
 
-    return merged;
+    return { merged, confidence };
   }
 
   private analyzeThreadContent(
@@ -314,9 +323,9 @@ export class ThreadAnalyzerService {
     try { processed = decodeURIComponent(text); } catch {}
     processed = processed.replace(/%2F/gi, '/');
 
-    // Pattern 1: Files with extensions (.ts, .js, etc.)
-    const fileRegex = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)?\.[jt]sx?)/gi;
-    const fileMatches = processed.match(fileRegex) || [];
+    // Pattern 1: Test files explicitly marked with .test. or _spec (high confidence)
+    const testFileRegex = /([\w\-]+(?:\.test|_spec|\.spec|_test)\.[jt]sx?)/gi;
+    const testFileMatches = processed.match(testFileRegex) || [];
 
     // Pattern 2: "Specs for Review:" section - lines with "path/file.ts  N failed test"
     const specsForReviewMatches: string[] = [];
@@ -328,23 +337,43 @@ export class ThreadAnalyzerService {
       }
     }
 
-    const allMatches = [...fileMatches, ...specsForReviewMatches];
+    // Pattern 3: Backtick-quoted test names (explicit mentions like `test-name.ts`)
+    const backtickMatches: string[] = [];
+    const backtickRegex = /`([\w\-]+(?:\.test|_spec|\.spec|_test)?\.tsx?)`/gi;
+    while ((match = backtickRegex.exec(processed)) !== null) {
+      if (match[1]) {
+        backtickMatches.push(match[1]);
+      }
+    }
 
-    // Blocklist of common false positives (not test names)
-    const blocklist = /^(index|config|setup|utils?|helpers?|types?|constants?|models?|services?|playwright|cypress|jest|mocha|failed|passed|test|tests|spec|specs)$/i;
+    const allMatches = [...testFileMatches, ...specsForReviewMatches, ...backtickMatches];
+
+    // Blocklist: page objects, helpers, utilities (not actual tests)
+    const blocklist = /^(index|config|setup|utils?|helpers?|types?|constants?|models?|services?|playwright|cypress|jest|mocha|failed|passed|test|tests|spec|specs|pages?|components?|report|reports)$/i;
+
+    // Additional blocklist for files that are clearly not tests (page objects, utilities)
+    const pathBlocklist = /\/(pages|components|helpers|utils|fixtures|support)\//i;
 
     const normalized = allMatches
+      .filter(m => !pathBlocklist.test(m)) // Filter out page objects etc from paths
       .map(m => {
         const cleaned = m.replace(/^\/*/, '');
         const base = cleaned.replace(/^.*[\\\/]/, '');
         return base.replace(/^2f+/i, '');
       })
-      .map(name => name.replace(/\.[tj]sx?$/i, '')) // Remove extension for consistency
+      .map(name => {
+        // Remove extension and normalize test suffix
+        let normalized = name.replace(/\.[tj]sx?$/i, '');
+        // Normalize: remove .test/.spec suffix for deduplication
+        normalized = normalized.replace(/\.test$|\.spec$|_test$|_spec$/i, '');
+        return normalized;
+      })
       .filter(name => {
         // Filter out short names and blocklisted terms
         if (name.length < 5) return false;
-        const baseName = name.replace(/_spec$|_test$|\.spec$|\.test$/i, '');
-        if (blocklist.test(baseName)) return false;
+        if (blocklist.test(name)) return false;
+        // Filter out names that look like page objects (ending with Page, Component, etc)
+        if (/Page$|Component$|Helper$|Util$|Service$/i.test(name)) return false;
         return true;
       });
 
@@ -377,6 +406,20 @@ export class ThreadAnalyzerService {
       }
     }
 
+    // Check if any tests are in progress (not blocking, but not fully resolved either)
+    let hasInProgress = false;
+    for (const status of statuses) {
+      const l = status.toLowerCase();
+      if (l.includes('fix in progress') || l.includes('investigating') || l.includes('tracked')) {
+        hasInProgress = true;
+        break;
+      }
+    }
+
+    if (hasInProgress) {
+      return '🔄 In progress - not blocking';
+    }
+
     // If we get here, all tests are in a "not blocking" state
     return '✅ Reviewed - not blocking';
   }
@@ -389,6 +432,7 @@ export class ThreadAnalyzerService {
       assignedCount: 0,
       rerunCount: 0,
       fixProgressCount: 0,
+      trackedCount: 0,
       ackCount: 0,
       rootCauseCount: 0,
       explainedCount: 0,
@@ -431,6 +475,7 @@ export class ThreadAnalyzerService {
       if (l.includes('assigned')) counts.assignedCount++;
       if (l.includes('rerun in progress')) counts.rerunCount++;
       if (l.includes('fix in progress')) counts.fixProgressCount++;
+      if (l.includes('tracked')) counts.trackedCount++;
       if (l.includes('acknowledged')) counts.ackCount++;
       if (l.includes('root cause identified')) counts.rootCauseCount++;
       if (l.includes('explained')) counts.explainedCount++;
@@ -448,7 +493,8 @@ export class ThreadAnalyzerService {
       '🚫 blocker': 90,
       '♻️ revert planned/applied': 80,
       '🔄 rerun in progress': 70,
-      '🔄 fix in progress': 60,
+      '🔄 fix in progress': 65,
+      '📋 tracked (known issue)': 60,
       '🔄 assigned': 55,
       '🔍 investigating': 50,
       '⚠️ flakey/env-specific': 45,
