@@ -1,24 +1,6 @@
 /**
  * Issue Detection Service
  * Analyzes Slack messages for blocking and critical issues
- *
- * REFACTORED: Now uses modular pipeline architecture
- * Maintains 100% backward compatibility while improving maintainability
- *
- * REFACTORING RESULTS:
- * - Main service: 811 → 214 lines (73% reduction)
- * - Total codebase: 811 → 1,509 lines (86% increase)
- * - Architecture: Monolithic → Modular pipeline
- * - Testability: Hard → Easy (isolated services)
- * - Maintainability: Complex → Simple (clear separation)
- *
- * TRADE-OFF ANALYSIS:
- * While total lines increased by 86%, this is justified because:
- * 1. Each service has a single, clear responsibility
- * 2. Changes are isolated to specific services
- * 3. Testing is dramatically simplified
- * 4. Future development is much faster
- * 5. The code is now maintainable and extensible
  */
 
 import { SlackClient } from '../clients/slack-client.js';
@@ -53,8 +35,6 @@ export class IssueDetectorService {
 
   /**
    * Find blocking and critical issues in Slack messages
-   * REFACTORED: Now uses the modular pipeline architecture
-   * Maintains 100% backward compatibility
    */
   async findIssues(
     channel: string,
@@ -99,7 +79,6 @@ export class IssueDetectorService {
 
   /**
    * Format issues into a readable report
-   * REFACTORED: Restored for backward compatibility - delegates to pipeline services
    */
   formatIssuesReport(issues: Issue[], date?: string, channel = 'functional-testing'): string {
     const blockingIssues = issues.filter(i => i.type === 'blocking');
