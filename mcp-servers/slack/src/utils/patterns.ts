@@ -84,3 +84,16 @@ export const BLOCKING_KEYWORD_PATTERNS = [
   { pattern: /@test.managers/i, keyword: 'test-managers' },
   { pattern: /hotfix/i, keyword: 'hotfix' },
 ];
+
+/**
+ * Test Manager Update message patterns
+ * These messages are summary/decision messages from the test manager
+ * and should NOT be treated as blocker sources
+ */
+export const TEST_MANAGER_UPDATE_PATTERNS = {
+  // Primary identifier - must match for a message to be considered a TM update
+  header: /frontend\s+release\s+update/i,
+  // Decision patterns that appear in these messages
+  canRelease: /we\s+can\s+release/i,
+  canStartHotfixing: /we\s+can\s+start\s+hotfix(?:ing)?/i,
+};

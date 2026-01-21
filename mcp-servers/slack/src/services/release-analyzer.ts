@@ -5,43 +5,50 @@
 
 import { IssueDetectorService } from './issue-detector.js';
 import { TestAnalyzerService } from './test-analyzer.js';
+import { TestManagerUpdateDetector, TestManagerUpdate } from './test-manager-update-detector.js';
 import { DateUtils } from '../utils/date-utils.js';
 import { SlackClient } from '../clients/slack-client.js';
 
 export class ReleaseAnalyzerService {
+  private testManagerDetector: TestManagerUpdateDetector;
+
   constructor(
     private slackClient: SlackClient,
     private issueDetector: IssueDetectorService,
     private testAnalyzer: TestAnalyzerService
-  ) {}
+  ) {
+    this.testManagerDetector = new TestManagerUpdateDetector(slackClient);
+  }
 
   async generateReleaseOverview(channel: string, date?: string): Promise<string> {
     const targetDate = date || DateUtils.getTodayDateString();
-    
+
     // Fetch issues using day-bounded messages for precision, but let test analyzer choose its own smart lookback
     const { oldest, latest } = DateUtils.getDateRange(date);
     const dayMessages = await this.slackClient.getChannelHistoryForDateRange(channel, oldest, latest, 200);
-    
-    const [allIssues, testResults] = await Promise.all([
+
+    const [allIssues, testResults, testManagerUpdate] = await Promise.all([
       this.issueDetector.findIssues(channel, date, 'both'),
-      this.testAnalyzer.analyzeTestResults(channel, date)
+      this.testAnalyzer.analyzeTestResults(channel, date),
+      this.testManagerDetector.findTestManagerUpdate(channel, date)
     ]);
-    
+
     // Separate issues by their new, nuanced types
     const blockingIssues = allIssues.filter(i => i.type === 'blocking');
     const criticalIssues = allIssues.filter(i => i.type === 'critical');
     const resolvedBlockers = allIssues.filter(i => i.type === 'blocking_resolved');
-    
-    return this.formatOverview(targetDate, blockingIssues, criticalIssues, resolvedBlockers, testResults, channel);
+
+    return this.formatOverview(targetDate, blockingIssues, criticalIssues, resolvedBlockers, testResults, channel, testManagerUpdate);
   }
 
   private formatOverview(
-    targetDate: string, 
-    blockingIssues: any[], 
-    criticalIssues: any[], 
+    targetDate: string,
+    blockingIssues: any[],
+    criticalIssues: any[],
     resolvedBlockers: any[],
-    testResults: any[], 
-    channel: string
+    testResults: any[],
+    channel: string,
+    testManagerUpdate?: TestManagerUpdate
   ): string {
     // Determine status based on nuanced issue types
     const hasBlockingIssues = blockingIssues.length > 0;
@@ -129,6 +136,11 @@ export class ReleaseAnalyzerService {
     
     output += `\n📅 Analysis Date: ${targetDate}\n`;
     output += `📺 Channel: #${channel}\n`;
+
+    // Add test manager decision at the end if found
+    if (testManagerUpdate?.found) {
+      output += this.testManagerDetector.formatTestManagerUpdate(testManagerUpdate);
+    }
 
     return output;
   }

@@ -8,6 +8,7 @@ import { SlackClient } from '../../../clients/slack-client.js';
 import { SlackMessage } from '../../../types/index.js';
 import { DateUtils } from '../../../utils/date-utils.js';
 import { ISlackMessageService } from '../models/service-interfaces.js';
+import { TEST_MANAGER_UPDATE_PATTERNS } from '../../../utils/patterns.js';
 
 export class SlackMessageService implements ISlackMessageService {
   constructor(private slackClient: SlackClient) {}
@@ -74,6 +75,12 @@ export class SlackMessageService implements ISlackMessageService {
       return !negativePhrases.some(phrase => text.includes(phrase));
     });
 
+    // Filter out test manager update messages - they are summaries, not blocker sources
+    seedMessages = seedMessages.filter(msg => {
+      const text = msg.text || '';
+      return !this.isTestManagerUpdateMessage(text);
+    });
+
     return seedMessages;
   }
 
@@ -115,6 +122,24 @@ export class SlackMessageService implements ISlackMessageService {
       console.error(`Failed to fetch full context for thread ${threadId}:`, e);
       return [message]; // Return original message on error
     }
+  }
+
+  /**
+   * Check if a message is a test manager update (summary/decision message)
+   * These should be excluded from blocker detection as they are summaries, not sources
+   */
+  private isTestManagerUpdateMessage(text: string): boolean {
+    // Must have the "Frontend release update" header
+    if (!TEST_MANAGER_UPDATE_PATTERNS.header.test(text)) {
+      return false;
+    }
+
+    // Should also have one of the decision patterns to confirm it's a TM update
+    const hasDecision =
+      TEST_MANAGER_UPDATE_PATTERNS.canRelease.test(text) ||
+      TEST_MANAGER_UPDATE_PATTERNS.canStartHotfixing.test(text);
+
+    return hasDecision;
   }
 
   /**

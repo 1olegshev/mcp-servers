@@ -23,6 +23,13 @@ const mockReleaseAnalyzer = {
   generateReleaseOverview: jest.fn()
 };
 
+const mockSlackClient = {
+  resolveConversation: jest.fn(),
+  getChannelHistoryForDateRange: jest.fn().mockResolvedValue([]),
+  searchMessages: jest.fn().mockResolvedValue([]),
+  getPermalink: jest.fn()
+};
+
 describe('AnalysisHandler', () => {
   let handler: AnalysisHandler;
 
@@ -31,7 +38,8 @@ describe('AnalysisHandler', () => {
     handler = new AnalysisHandler(
       mockIssueDetector as any,
       mockTestAnalyzer as any,
-      mockReleaseAnalyzer as any
+      mockReleaseAnalyzer as any,
+      mockSlackClient as any
     );
   });
 

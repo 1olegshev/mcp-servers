@@ -54,7 +54,7 @@ export class SlackMCPServer {
     const releaseAnalyzer = new ReleaseAnalyzerService(slackClient, issueDetector, testAnalyzer);
 
     // Initialize handlers with dependencies
-    this.analysisHandler = new AnalysisHandler(issueDetector, testAnalyzer, releaseAnalyzer);
+    this.analysisHandler = new AnalysisHandler(issueDetector, testAnalyzer, releaseAnalyzer, slackClient);
     this.messagingHandler = new MessagingHandler(slackClient);
   }
 
@@ -193,6 +193,17 @@ export class SlackMCPServer {
             },
           },
         },
+        {
+          name: 'get_test_manager_update',
+          description: 'Find and parse the test manager release status update message for a specific date. Returns the human decision (release/start hotfixing) and status summary.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              channel: { type: 'string', description: 'Channel to analyze (defaults to functional-testing)', default: 'functional-testing' },
+              date: { type: 'string', description: 'Date to analyze (YYYY-MM-DD format or "today", defaults to today)' },
+            },
+          },
+        },
       ],
     }));
 
@@ -228,7 +239,9 @@ export class SlackMCPServer {
             return await this.analysisHandler.getAutoTestStatus(toolArgs);
           case 'get_release_status_overview':
             return await this.analysisHandler.getReleaseStatusOverview(toolArgs);
-          
+          case 'get_test_manager_update':
+            return await this.analysisHandler.getTestManagerUpdate(toolArgs);
+
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }

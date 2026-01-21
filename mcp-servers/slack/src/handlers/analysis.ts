@@ -1,21 +1,27 @@
 /**
  * Analysis Operations Handler
- * Handles get_blocking_issues, get_auto_test_status, get_release_status_overview
+ * Handles get_blocking_issues, get_auto_test_status, get_release_status_overview, get_test_manager_update
  */
 
 import { BaseHandler } from './base-handler.js';
 import { IssueDetectorService } from '../services/issue-detector.js';
 import { TestAnalyzerService } from '../services/test-analyzer.js';
 import { ReleaseAnalyzerService } from '../services/release-analyzer.js';
+import { TestManagerUpdateDetector } from '../services/test-manager-update-detector.js';
+import { SlackClient } from '../clients/slack-client.js';
 import { ToolArgs } from '../types/index.js';
 
 export class AnalysisHandler extends BaseHandler {
+  private testManagerDetector: TestManagerUpdateDetector;
+
   constructor(
     private issueDetector: IssueDetectorService,
     private testAnalyzer: TestAnalyzerService,
-    private releaseAnalyzer: ReleaseAnalyzerService
+    private releaseAnalyzer: ReleaseAnalyzerService,
+    slackClient: SlackClient
   ) {
     super();
+    this.testManagerDetector = new TestManagerUpdateDetector(slackClient);
   }
 
   async getBlockingIssues(args: ToolArgs) {
@@ -57,6 +63,25 @@ export class AnalysisHandler extends BaseHandler {
       return this.formatResponse(overview);
     } catch (error) {
       this.handleError(error, 'generate release status overview');
+    }
+  }
+
+  async getTestManagerUpdate(args: ToolArgs) {
+    this.validateRequired(args, ['date']);
+    const channel = args.channel || 'functional-testing';
+
+    try {
+      const update = await this.testManagerDetector.findTestManagerUpdate(channel, args.date!);
+      const report = this.testManagerDetector.formatTestManagerUpdate(update);
+
+      // Return a message if not found
+      if (!update.found) {
+        return this.formatResponse('_No test manager update found for this date._');
+      }
+
+      return this.formatResponse(report);
+    } catch (error) {
+      this.handleError(error, 'find test manager update');
     }
   }
 }

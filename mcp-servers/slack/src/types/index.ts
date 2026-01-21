@@ -93,3 +93,18 @@ export interface UserInfo {
     display_name?: string;
   };
 }
+
+export interface TestManagerUpdate {
+  found: boolean;
+  decision?: 'release' | 'start_hotfixing' | 'unknown';
+  decisionEvolved?: boolean;
+  manualTestingStatus?: 'done' | 'close_to_done' | 'in_progress' | 'unknown';
+  autotestsStatus?: 'reviewed' | 'pending' | 'unknown';
+  responsibleDev?: string;
+  hotfixes?: string[];
+  summary?: string;
+  rawMessage?: string;
+  timestamp?: string;
+  permalink?: string;
+  threadRepliesCount?: number;
+}
