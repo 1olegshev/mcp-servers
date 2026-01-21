@@ -25,8 +25,9 @@ import { TEST_MANAGER_UPDATE_PATTERNS } from '../utils/patterns.js';
 
 export interface TestManagerUpdate {
   found: boolean;
-  decision?: 'release' | 'start_hotfixing' | 'unknown';
+  decision?: 'release' | 'start_hotfixing' | 'aborted' | 'unknown';
   decisionEvolved?: boolean;  // True if thread shows decision changed from original
+  isFriday?: boolean;  // True if this is a Friday (no release) message
   manualTestingStatus?: 'done' | 'close_to_done' | 'in_progress' | 'unknown';
   autotestsStatus?: 'reviewed' | 'pending' | 'unknown';
   responsibleDev?: string;
@@ -74,13 +75,28 @@ export class TestManagerUpdateDetector {
       }
 
       // Also try search API for more reliable results
+      // Search for both normal update and Friday aborted messages
       const dateFilter = date === 'today' || !date ? 'on:today' : `on:${date}`;
+
+      // Try normal "Frontend release update" first
       const searchResults = await this.slackClient.searchMessages(
         `"Frontend release update" ${dateFilter}`,
         channel
       );
 
       for (const message of searchResults) {
+        if (this.isTestManagerUpdateMessage(message as SlackMessage)) {
+          return this.analyzeTestManagerUpdate(message as SlackMessage, channel);
+        }
+      }
+
+      // Try Friday "Frontend release pipeline aborted" message
+      const abortedResults = await this.slackClient.searchMessages(
+        `"Frontend release pipeline aborted" ${dateFilter}`,
+        channel
+      );
+
+      for (const message of abortedResults) {
         if (this.isTestManagerUpdateMessage(message as SlackMessage)) {
           return this.analyzeTestManagerUpdate(message as SlackMessage, channel);
         }
@@ -99,12 +115,17 @@ export class TestManagerUpdateDetector {
   isTestManagerUpdateMessage(message: SlackMessage): boolean {
     const text = message.text || '';
 
-    // Must have the "Frontend release update" header
+    // Must have the header - either "Frontend release update" or "Frontend release pipeline aborted"
     if (!TEST_MANAGER_UPDATE_PATTERNS.header.test(text)) {
       return false;
     }
 
-    // Should have at least one indicator of a release status update
+    // Friday "pipeline aborted" messages are always valid TM updates
+    if (TEST_MANAGER_UPDATE_PATTERNS.headerAborted.test(text)) {
+      return true;
+    }
+
+    // For normal "Frontend release update", check for indicators
     const hasDecision =
       TEST_MANAGER_UPDATE_PATTERNS.canRelease.test(text) ||
       TEST_MANAGER_UPDATE_PATTERNS.goodToRelease.test(text) ||
@@ -127,6 +148,11 @@ export class TestManagerUpdateDetector {
   private async analyzeTestManagerUpdate(message: SlackMessage, channel: string): Promise<TestManagerUpdate> {
     const text = message.text || '';
 
+    // Detect if this is a "pipeline aborted" message (can happen any day, not just Friday)
+    const isAbortedMessage = TEST_MANAGER_UPDATE_PATTERNS.headerAborted.test(text);
+    // Only set isFriday if the message explicitly mentions Friday
+    const isFriday = TEST_MANAGER_UPDATE_PATTERNS.fridayIndicator.test(text);
+
     // Fetch thread replies if the message has a thread
     let threadReplies: SlackMessage[] = [];
     if (message.ts && (message.reply_count || message.thread_ts)) {
@@ -148,14 +174,29 @@ export class TestManagerUpdateDetector {
       // Ignore permalink errors
     }
 
+    // For aborted messages, use a simplified analysis
+    if (isAbortedMessage) {
+      return {
+        found: true,
+        decision: 'aborted',
+        isFriday,
+        summary: isFriday ? 'No release on Friday - pipeline aborted' : 'Release pipeline aborted - postponed',
+        rawMessage: text,
+        timestamp: message.ts,
+        permalink,
+        threadRepliesCount: threadReplies.length,
+      };
+    }
+
     // Try LLM analysis first
     const llmAvailable = await this.ollamaClient.isAvailable();
     if (llmAvailable) {
       try {
-        const llmResult = await this.analyzewithLLM(text, threadReplies);
+        const llmResult = await this.analyzewithLLM(text, threadReplies, isFriday);
         return {
           found: true,
           ...llmResult,
+          isFriday,
           rawMessage: text,
           timestamp: message.ts,
           permalink,
@@ -167,30 +208,35 @@ export class TestManagerUpdateDetector {
     }
 
     // Fallback to pattern-based analysis
-    return this.patternBasedAnalysis(message, threadReplies, channel, permalink);
+    return this.patternBasedAnalysis(message, threadReplies, channel, permalink, isFriday);
   }
 
   /**
    * Use LLM to analyze the test manager update and thread
    */
-  private async analyzewithLLM(mainMessage: string, threadReplies: SlackMessage[]): Promise<Partial<TestManagerUpdate>> {
+  private async analyzewithLLM(mainMessage: string, threadReplies: SlackMessage[], isFriday: boolean = false): Promise<Partial<TestManagerUpdate>> {
     const threadText = threadReplies
       .map((m, i) => `Reply ${i + 1}: ${m.text || ''}`)
       .filter(t => t.length > 10)
       .join('\n');
+
+    const fridayContext = isFriday
+      ? `\nNOTE: This appears to be a Friday message. On Fridays, releases are typically not done.`
+      : '';
 
     const prompt = `Analyze this test manager release status update and any thread replies.
 
 MAIN MESSAGE:
 ${mainMessage}
 
-${threadText ? `THREAD REPLIES (${threadReplies.length} total):\n${threadText}` : 'NO THREAD REPLIES YET'}
+${threadText ? `THREAD REPLIES (${threadReplies.length} total):\n${threadText}` : 'NO THREAD REPLIES YET'}${fridayContext}
 
 Extract the CURRENT state (thread updates override the main message):
 
 1. DECISION: What is the current release decision?
    - "release" = ready to release / good to go / we can release
    - "start_hotfixing" = need to hotfix first / will hotfix / hotfixing before release
+   - "aborted" = pipeline aborted / no release today (typically Friday)
    - "unknown" = no clear decision yet
 
 2. DECISION_EVOLVED: Did the decision change in the thread? (true/false)
@@ -212,7 +258,7 @@ Extract the CURRENT state (thread updates override the main message):
 6. SUMMARY: One sentence describing the current state (max 100 chars)
 
 Output JSON only:
-{"decision": "release|start_hotfixing|unknown", "decisionEvolved": true/false, "manualTestingStatus": "done|close_to_done|in_progress|unknown", "autotestsStatus": "reviewed|pending|unknown", "hotfixes": ["TICKET-123"], "summary": "brief summary"}`;
+{"decision": "release|start_hotfixing|aborted|unknown", "decisionEvolved": true/false, "manualTestingStatus": "done|close_to_done|in_progress|unknown", "autotestsStatus": "reviewed|pending|unknown", "hotfixes": ["TICKET-123"], "summary": "brief summary"}`;
 
     const response = await this.ollamaClient.generate(prompt, {
       temperature: 0.2,
@@ -254,6 +300,7 @@ Output JSON only:
   private normalizeDecision(value: any): TestManagerUpdate['decision'] {
     if (value === 'release') return 'release';
     if (value === 'start_hotfixing' || value === 'hotfix' || value === 'hotfixing') return 'start_hotfixing';
+    if (value === 'aborted' || value === 'abort' || value === 'no_release') return 'aborted';
     return 'unknown';
   }
 
@@ -277,7 +324,8 @@ Output JSON only:
     message: SlackMessage,
     threadReplies: SlackMessage[],
     _channel: string,
-    permalink?: string
+    permalink?: string,
+    isFriday: boolean = false
   ): Promise<TestManagerUpdate> {
     const text = message.text || '';
     const allText = [text, ...threadReplies.map(r => r.text || '')].join('\n');
@@ -335,6 +383,7 @@ Output JSON only:
       found: true,
       decision,
       decisionEvolved,
+      isFriday,
       manualTestingStatus,
       autotestsStatus,
       hotfixes: hotfixes.length > 0 ? hotfixes : undefined,
@@ -377,6 +426,12 @@ Output JSON only:
       output += `✅ *We can release*`;
     } else if (update.decision === 'start_hotfixing') {
       output += `🔧 *Hotfixing first*`;
+    } else if (update.decision === 'aborted') {
+      if (update.isFriday) {
+        output += `📅 *No release today (Friday)*`;
+      } else {
+        output += `⏸️ *Release postponed*`;
+      }
     } else {
       output += `⏳ *Decision pending*`;
     }
@@ -387,34 +442,41 @@ Output JSON only:
     }
     output += '\n';
 
-    // LLM summary if available
-    if (update.summary) {
+    // Friday note - blockers carry over to Monday
+    if (update.isFriday) {
+      output += `> _Any blockers found today will affect Monday's release_\n`;
+    }
+
+    // LLM summary if available (skip for Friday aborted since we have the Friday note)
+    if (update.summary && !(update.decision === 'aborted' && update.isFriday)) {
       output += `> ${update.summary}\n`;
     }
 
-    // Status summary
-    const statuses: string[] = [];
-    if (update.manualTestingStatus === 'done') {
-      statuses.push('Manual testing: done');
-    } else if (update.manualTestingStatus === 'close_to_done') {
-      statuses.push('Manual testing: almost done');
-    } else if (update.manualTestingStatus === 'in_progress') {
-      statuses.push('Manual testing: in progress');
-    }
+    // Status summary (not applicable for Friday/aborted)
+    if (update.decision !== 'aborted') {
+      const statuses: string[] = [];
+      if (update.manualTestingStatus === 'done') {
+        statuses.push('Manual testing: done');
+      } else if (update.manualTestingStatus === 'close_to_done') {
+        statuses.push('Manual testing: almost done');
+      } else if (update.manualTestingStatus === 'in_progress') {
+        statuses.push('Manual testing: in progress');
+      }
 
-    if (update.autotestsStatus === 'reviewed') {
-      statuses.push('Autotests: reviewed');
-    } else if (update.autotestsStatus === 'pending') {
-      statuses.push('Autotests: pending');
-    }
+      if (update.autotestsStatus === 'reviewed') {
+        statuses.push('Autotests: reviewed');
+      } else if (update.autotestsStatus === 'pending') {
+        statuses.push('Autotests: pending');
+      }
 
-    if (statuses.length > 0) {
-      output += `${statuses.join(' • ')}\n`;
-    }
+      if (statuses.length > 0) {
+        output += `${statuses.join(' • ')}\n`;
+      }
 
-    // Hotfixes if any
-    if (update.hotfixes && update.hotfixes.length > 0) {
-      output += `Hotfixes: ${update.hotfixes.join(', ')}\n`;
+      // Hotfixes if any
+      if (update.hotfixes && update.hotfixes.length > 0) {
+        output += `Hotfixes: ${update.hotfixes.join(', ')}\n`;
+      }
     }
 
     // Thread indicator

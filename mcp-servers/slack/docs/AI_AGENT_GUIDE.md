@@ -225,13 +225,25 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Purpose**: Detect and analyze test manager's daily release status update message
 - **Key Methods**: `findTestManagerUpdate()`, `analyzeWithLLM()`, `formatTestManagerUpdate()`
 - **LLM Backend**: Ollama with Qwen3 30B (shared client via `ollama-client.ts`)
+- **Message Types**:
+  1. **Normal day**: "Frontend release update" - contains release decision (release/hotfix)
+  2. **Aborted**: "Frontend release pipeline aborted" - release postponed (can be any day)
+- **Decision Types**:
+  - `release` - Ready to release / good to go
+  - `start_hotfixing` - Need to hotfix first
+  - `aborted` - Pipeline aborted / release postponed (unfixable blockers or Friday)
+  - `unknown` - No clear decision yet
 - **Features**:
-  - Detects "Frontend release update" messages in #functional-testing
+  - Detects both "Frontend release update" and "Frontend release pipeline aborted" messages
   - Fetches and analyzes thread replies to capture decision evolution
-  - LLM extracts: decision (release/hotfix), manual testing status, autotests status, hotfixes
+  - LLM extracts: decision, manual testing status, autotests status, hotfixes
   - Tracks if decision changed in thread (e.g., "hotfix" → "release")
+  - Friday detection: `isFriday` flag set only when message explicitly mentions Friday
   - Pattern-based fallback when Ollama unavailable
 - **Output**: Structured `TestManagerUpdate` with summary and link to original message
+- **Display**:
+  - Friday aborted: "📅 No release today (Friday)" + note about Monday's release
+  - Non-Friday aborted: "⏸️ Release postponed"
 - **Exclusion**: These messages are excluded from blocker detection (they're summaries, not sources)
 
 #### 📊 **release-analyzer.ts**

@@ -89,10 +89,24 @@ export const BLOCKING_KEYWORD_PATTERNS = [
  * Test Manager Update message patterns
  * These messages are summary/decision messages from the test manager
  * and should NOT be treated as blocker sources
+ *
+ * Two message types:
+ * 1. Normal day: "Frontend release update" - contains release decision
+ * 2. Friday: "Frontend release pipeline aborted" - no release on Fridays
  */
 export const TEST_MANAGER_UPDATE_PATTERNS = {
-  // Primary identifier - must match for a message to be considered a TM update
-  header: /frontend\s+release\s+update/i,
+  // Primary identifiers - must match for a message to be considered a TM update
+  // Matches both "Frontend release update" and "Frontend release pipeline aborted"
+  header: /frontend\s+release\s+(?:update|pipeline\s+aborted)/i,
+
+  // Specific header for normal release update
+  headerUpdate: /frontend\s+release\s+update/i,
+
+  // Specific header for Friday (pipeline aborted)
+  headerAborted: /frontend\s+release\s+pipeline\s+aborted/i,
+
+  // Friday indicator - often mentions it's Friday
+  fridayIndicator: /it['']?s\s+friday/i,
 
   // Decision patterns (expanded to catch variations)
   canRelease: /we\s+(?:can|are\s+good\s+to)\s+release/i,
