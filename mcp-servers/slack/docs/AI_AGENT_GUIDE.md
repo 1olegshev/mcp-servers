@@ -460,6 +460,21 @@ export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id
 | `Cannot find module` | Run `npm run build` in the server directory |
 | `ENOENT dist/server.js` | Wrong directory - `cd` to project root first |
 
+### ⚠️ VSCode MCP Server Caching
+
+**IMPORTANT:** When you rebuild an MCP server (`npm run build`), VSCode caches the old server instance. The MCP tools called via Claude Code will continue using the OLD code until you restart VSCode.
+
+**Symptoms:**
+- You made code changes and rebuilt, but MCP tool output doesn't reflect changes
+- Debug logging you added doesn't appear
+- New features don't work when called via MCP tools
+
+**Solution:**
+1. After rebuilding, **restart VSCode** (Cmd+Shift+P → "Reload Window" or quit and reopen)
+2. Or test via CLI instead: `echo '{"jsonrpc":"2.0",...}' | node mcp-servers/slack/dist/server.js`
+
+The CLI method always uses the freshly built code and is faster for development iteration.
+
 ### Converting Slack Timestamps
 
 Slack URLs contain timestamps (e.g., `p1768296887355659`). Convert to date:

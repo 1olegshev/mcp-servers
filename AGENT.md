@@ -491,3 +491,16 @@ These are intentional design decisions. Do not "fix" or "improve" them without e
 | `ENOENT dist/server.js` | Wrong directory - `cd` to project root |
 | `Write access restricted` | Only #qa-release-status allows Slack writes |
 | ESM/require errors | Ensure imports use `.js` extension |
+
+### ⚠️ VSCode MCP Server Caching (IMPORTANT)
+
+**After rebuilding an MCP server, VSCode caches the old server instance.** MCP tools called via Claude Code will use OLD code until you restart VSCode.
+
+**Symptoms:** Code changes don't take effect, debug logging doesn't appear, new features don't work via MCP tools.
+
+**Solutions:**
+1. **Restart VSCode** (Cmd+Shift+P → "Reload Window")
+2. **Or test via CLI** (always uses fresh build):
+   ```bash
+   echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"TOOL_NAME","arguments":{}}}' | node mcp-servers/SERVER/dist/server.js 2>&1
+   ```

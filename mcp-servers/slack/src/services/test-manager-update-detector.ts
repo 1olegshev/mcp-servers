@@ -21,6 +21,7 @@ import { SlackClient } from '../clients/slack-client.js';
 import { OllamaClient } from '../clients/ollama-client.js';
 import { SlackMessage } from '../types/index.js';
 import { DateUtils } from '../utils/date-utils.js';
+import { TEST_MANAGER_UPDATE_PATTERNS } from '../utils/patterns.js';
 
 export interface TestManagerUpdate {
   found: boolean;
@@ -37,31 +38,16 @@ export interface TestManagerUpdate {
   threadRepliesCount?: number;
 }
 
-// Patterns for detecting test manager update messages (used for initial detection)
-export const TEST_MANAGER_UPDATE_PATTERNS = {
-  // Primary identifier - the "Frontend release update" header
-  header: /frontend\s+release\s+update/i,
-
-  // Decision patterns (expanded)
-  canRelease: /we\s+(?:can|are\s+good\s+to)\s+release/i,
-  goodToRelease: /good\s+to\s+(?:go|release)/i,
-  canStartHotfixing: /we\s+(?:can|will)\s+(?:start\s+)?hotfix(?:ing)?/i,
-  willHotfix: /will\s+hotfix/i,
-
-  // Status patterns
-  manualTestingDone: /manual\s+testing(?:\s+(?:and\s+rc|is))?[:\s]+done/i,
-  manualTestingAlmostDone: /manual\s+testing(?:\s+(?:and\s+rc))?[:\s]+(?:almost\s+)?(?:completed?|close)/i,
-  autotestsReviewed: /autotests?[:\s]+reviewed/i,
-
-  // The @test-managers mention often appears in these updates
-  testManagersMention: /@test-managers/i,
-};
+// Re-export for backward compatibility
+export { TEST_MANAGER_UPDATE_PATTERNS };
 
 export class TestManagerUpdateDetector {
   private ollamaClient: OllamaClient;
+  private jiraBaseUrl: string;
 
   constructor(private slackClient: SlackClient) {
     this.ollamaClient = new OllamaClient();
+    this.jiraBaseUrl = process.env.JIRA_BASE_URL || 'https://mobitroll.atlassian.net';
   }
 
   /**

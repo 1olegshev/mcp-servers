@@ -129,15 +129,46 @@ export class ContextAnalyzerService implements IContextAnalyzer {
     // BUSINESS RULE: Hotfixes are ONLY made for blockers
     // Check for hotfix context first - if ticket is in hotfix list, it's automatically blocking
     let foundInHotfixContext = false;
+
+    // First check if ticket is explicitly mentioned in a hotfix context
     for (const message of threadMessages) {
       const text = (message.text || '').toLowerCase();
       const mentionsTicket = text.includes(ticketKey.toLowerCase());
-      
+
       if (mentionsTicket && TextAnalyzer.isHotfixContext(text)) {
         isBlocking = true;
         foundInHotfixContext = true;
         hasHotfixCommitment = true;
         break; // Found in hotfix context, no need to check further
+      }
+    }
+
+    // CRITICAL: Check for "will hotfix this" style messages that don't mention the ticket explicitly
+    // If a reply says "will hotfix this one" or "@test-managers will hotfix", it refers to the thread's ticket
+    if (!foundInHotfixContext && threadMessages.length > 0) {
+      // Check if ticket is mentioned in parent (first message)
+      const parentText = (threadMessages[0]?.text || '').toLowerCase();
+      const ticketInParent = parentText.includes(ticketKey.toLowerCase());
+
+      if (ticketInParent) {
+        // Now check if any reply has a hotfix signal without specifying a different ticket
+        for (let i = 1; i < threadMessages.length; i++) {
+          const replyText = (threadMessages[i]?.text || '').toLowerCase();
+          // Look for "will hotfix" patterns
+          const hasHotfixSignal = /will\s+hotfix/i.test(replyText) ||
+                                  /hotfix\s+this/i.test(replyText) ||
+                                  /this\s+(?:one\s+)?(?:is\s+a\s+)?(?:blocker|needs?\s+hotfix)/i.test(replyText);
+          // Make sure it's not about a different ticket
+          const mentionsDifferentTicket = /KAHOOT-\d+/i.test(replyText) &&
+                                          !replyText.includes(ticketKey.toLowerCase());
+
+          if (hasHotfixSignal && !mentionsDifferentTicket) {
+            isBlocking = true;
+            foundInHotfixContext = true;
+            hasHotfixCommitment = true;
+            break;
+          }
+        }
       }
     }
 

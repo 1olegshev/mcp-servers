@@ -93,7 +93,18 @@ export const BLOCKING_KEYWORD_PATTERNS = [
 export const TEST_MANAGER_UPDATE_PATTERNS = {
   // Primary identifier - must match for a message to be considered a TM update
   header: /frontend\s+release\s+update/i,
-  // Decision patterns that appear in these messages
-  canRelease: /we\s+can\s+release/i,
-  canStartHotfixing: /we\s+can\s+start\s+hotfix(?:ing)?/i,
+
+  // Decision patterns (expanded to catch variations)
+  canRelease: /we\s+(?:can|are\s+good\s+to)\s+release/i,
+  goodToRelease: /good\s+to\s+(?:go|release)/i,
+  canStartHotfixing: /we\s+(?:can|will)\s+(?:start\s+)?hotfix(?:ing)?/i,
+  willHotfix: /will\s+hotfix/i,
+
+  // Status patterns
+  manualTestingDone: /manual\s+testing(?:\s+(?:and\s+rc|is))?[:\s]+done/i,
+  manualTestingAlmostDone: /manual\s+testing(?:\s+(?:and\s+rc))?[:\s]+(?:almost\s+)?(?:completed?|close)/i,
+  autotestsReviewed: /autotests?[:\s]+reviewed/i,
+
+  // The @test-managers mention often appears in these updates
+  testManagersMention: /@test-managers/i,
 };

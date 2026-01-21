@@ -67,17 +67,22 @@ export class IssueDetectionPipeline {
       // Step 1: Fetch raw messages from Slack
       const rawMessages = await this.messageService.findBlockerMessages(channel, date);
 
+      // Step 1.5: Expand thread replies to include full thread context
+      // This ensures we get the parent message (which may contain the ticket number)
+      // when we find a thread reply like "will hotfix this one"
+      const expandedMessages = await this.expandThreadContext(rawMessages, channel);
+
       // Step 2: Parse messages for blocker patterns and extract tickets
-      const parsedTickets = this.parseMessagesForTickets(rawMessages);
+      const parsedTickets = this.parseMessagesForTickets(expandedMessages);
 
       // Step 3: Analyze tickets in context (threads)
-      const analyzedIssues = await this.analyzeTicketsInContext(parsedTickets, rawMessages);
+      const analyzedIssues = await this.analyzeTicketsInContext(parsedTickets, expandedMessages);
 
       // Step 4: Deduplicate and prioritize issues FIRST (reduces LLM calls)
       const deduplicatedIssues = this.deduplicator.deduplicateWithPriority(analyzedIssues);
 
       // Step 5: LLM Classification (filter false positives on deduplicated set)
-      const finalIssues = await this.applyLLMClassification(deduplicatedIssues, rawMessages);
+      const finalIssues = await this.applyLLMClassification(deduplicatedIssues, expandedMessages);
 
       return finalIssues;
 
@@ -148,6 +153,73 @@ export class IssueDetectionPipeline {
     }
 
     return filteredIssues;
+  }
+
+  /**
+   * Expand thread replies to include full thread context
+   * When we find a message like "will hotfix this one" (a thread reply),
+   * we need the parent message to get the ticket number
+   */
+  private async expandThreadContext(messages: any[], channel: string): Promise<any[]> {
+    const expandedMessages: any[] = [];
+    const seenTs = new Set<string>();
+
+    for (const message of messages) {
+      const msgTs = message.ts;
+      if (!msgTs) continue;
+
+      // If this message is already in our set, skip
+      if (seenTs.has(msgTs)) {
+        continue;
+      }
+
+      // Check if this is a thread reply - try thread_ts first, then extract from permalink
+      const threadTs = this.extractThreadTs(message);
+      const isThreadReply = threadTs && threadTs !== msgTs;
+
+      if (isThreadReply) {
+        try {
+          const threadMessages = await this.messageService.getThreadContext(message, channel);
+          for (const threadMsg of threadMessages) {
+            const ts = threadMsg.ts;
+            if (ts && !seenTs.has(ts)) {
+              seenTs.add(ts);
+              expandedMessages.push(threadMsg);
+            }
+          }
+        } catch {
+          // On error, just add the original message
+          seenTs.add(msgTs);
+          expandedMessages.push(message);
+        }
+      } else {
+        // Not a thread reply, just add as-is
+        seenTs.add(msgTs);
+        expandedMessages.push(message);
+      }
+    }
+
+    return expandedMessages;
+  }
+
+  /**
+   * Extract thread_ts from message, with permalink fallback for search results
+   */
+  private extractThreadTs(message: any): string | undefined {
+    if (message.thread_ts) {
+      return message.thread_ts;
+    }
+
+    // Search results often have thread_ts in permalink: ?thread_ts=1234567890.123456
+    const permalink = message.permalink;
+    if (permalink) {
+      const threadTsMatch = permalink.match(/[?&]thread_ts=([^&]+)/);
+      if (threadTsMatch) {
+        return threadTsMatch[1];
+      }
+    }
+
+    return undefined;
   }
 
   /**

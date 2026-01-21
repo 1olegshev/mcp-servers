@@ -85,20 +85,26 @@ export class LLMClassifierService {
       .filter(t => t.length > 0)
       .join('\n---\n');
 
-    return `Is this Slack message about a RELEASE blocker?
+    return `Is this Slack message reporting an ACTIVE release blocker that needs resolution?
 
-STRONG BLOCKER SIGNALS:
-- CC @test-managers = escalation to release gatekeepers, very likely a blocker
-- "release blocker", "blocking the release", "hotfix needed", "no go"
+ACTIVE BLOCKER (isBlocker=true):
+- "release blocker", "blocking the release", "no go"
+- "will hotfix", "needs hotfix", "hotfix needed" = blocker identified, fix pending
+- Escalation to @test-managers about an issue
+- Unresolved critical bug blocking release
 
-NOT A RELEASE BLOCKER:
+NOT A BLOCKER (isBlocker=false):
+- "Frontend release update" = STATUS SUMMARY from test manager, not a blocker report
+- "we can release", "good to release", "good to go" = blockers are RESOLVED
+- "hotfix ready", "hotfix deployed", "hotfix done", "fixed" = issue is RESOLVED
 - "blocking us to retest/test" = workflow inconvenience, not release blocker
 - Questions like "Is this a blocker?"
 - UI terms: "answer blocks", "code block"
 - "not blocking", "no longer blocking"
-- "minor issue", "nice to fix", "Legacy bugs" = not release critical
 
-KEY: "blocking" alone often means workflow blocking. "release blocker" or @test-managers = actual release blocker.
+KEY DISTINCTION:
+- "will hotfix X" = BLOCKER (action pending)
+- "hotfix ready/deployed" = NOT blocker (action completed)
 
 Message: "${mainText}"
 ${threadText ? `\nThread context:\n${threadText}` : ''}
