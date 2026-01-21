@@ -43,6 +43,7 @@ src/
 │   ├── thread-analyzer.ts   # 🧵 Dedicated thread review analysis
 │   ├── llm-test-classifier.service.ts  # 🤖 LLM test status classification (uses OllamaClient)
 │   ├── test-report-formatter.ts # 📋 Format test results with improved styling
+│   ├── test-manager-update-detector.ts # 👤 Detect test manager release decisions
 │   └── release-analyzer.ts  # 📊 Release status decisions
 ├── handlers/                # 🎛️ MCP tool handlers
 │   ├── base-handler.ts      # 🏗️ Common patterns
@@ -220,6 +221,19 @@ if (legacyBot) return new WebClient(legacyBot);
   - Low confidence warnings (⚠️NN%) shown when LLM confidence < 70%
 - **Output**: Slack-friendly markdown with enhanced readability. Suites that have unresolved/unclear tests now surface a "Needs Review" status until every failure is explicitly cleared.
 
+#### 👤 **test-manager-update-detector.ts**
+- **Purpose**: Detect and analyze test manager's daily release status update message
+- **Key Methods**: `findTestManagerUpdate()`, `analyzeWithLLM()`, `formatTestManagerUpdate()`
+- **LLM Backend**: Ollama with Qwen3 30B (shared client via `ollama-client.ts`)
+- **Features**:
+  - Detects "Frontend release update" messages in #functional-testing
+  - Fetches and analyzes thread replies to capture decision evolution
+  - LLM extracts: decision (release/hotfix), manual testing status, autotests status, hotfixes
+  - Tracks if decision changed in thread (e.g., "hotfix" → "release")
+  - Pattern-based fallback when Ollama unavailable
+- **Output**: Structured `TestManagerUpdate` with summary and link to original message
+- **Exclusion**: These messages are excluded from blocker detection (they're summaries, not sources)
+
 #### 📊 **release-analyzer.ts**
 - **Purpose**: Generate comprehensive release readiness decisions
 - **Key Methods**: `generateReleaseOverview()`
@@ -239,7 +253,7 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Features**: User resolution, message formatting
 
 #### 📈 **analysis.ts**
-- **Tools**: `get_blocking_issues`, `get_auto_test_status`, `get_release_status_overview`
+- **Tools**: `get_blocking_issues`, `get_auto_test_status`, `get_release_status_overview`, `get_test_manager_update`
 - **Integration**: Orchestrates service calls
 - **Output**: Formatted analysis reports
 
@@ -368,6 +382,7 @@ If the Slack server is connected via `.mcp.json`, call tools directly:
 mcp__slack__get_auto_test_status
 mcp__slack__get_blocking_issues
 mcp__slack__get_release_status_overview
+mcp__slack__get_test_manager_update
 mcp__slack__get_channel_history
 mcp__slack__search_messages
 mcp__slack__send_message  # ⚠️ Restricted to #qa-release-status
@@ -432,6 +447,7 @@ export $(grep -v '^#' .env | grep -v '^$' | xargs) && echo '{"jsonrpc":"2.0","id
 | `get_auto_test_status` | ✅ | Read-only |
 | `get_blocking_issues` | ✅ | Read-only |
 | `get_release_status_overview` | ✅ | Read-only |
+| `get_test_manager_update` | ✅ | Read-only (uses LLM for analysis) |
 | `get_channel_history` | ✅ | Read-only |
 | `search_messages` | ✅ | Read-only |
 | `send_message` | ⚠️ | Posts to Slack (restricted to qa-release-status) |
