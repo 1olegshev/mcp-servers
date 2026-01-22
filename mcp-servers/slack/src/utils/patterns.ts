@@ -90,20 +90,28 @@ export const BLOCKING_KEYWORD_PATTERNS = [
  * These messages are summary/decision messages from the test manager
  * and should NOT be treated as blocker sources
  *
- * Two message types:
- * 1. Normal day: "Frontend release update" - contains release decision
- * 2. Friday: "Frontend release pipeline aborted" - no release on Fridays
+ * Message types:
+ * 1. Normal release: "Frontend release update" - decision to release or hotfix first
+ * 2. Postponed release: "Frontend release update" - decision to postpone (any day)
+ * 3. Friday aborted: "Frontend release pipeline aborted" - no release on Fridays
+ *
+ * Possible decisions:
+ * - release: ready to release
+ * - start_hotfixing: need to hotfix before release
+ * - postponed: release delayed to another day (e.g., "we are going to postpone the release")
+ * - aborted: pipeline aborted (typically Friday, but can be any day)
  */
 export const TEST_MANAGER_UPDATE_PATTERNS = {
   // Primary identifiers - must match for a message to be considered a TM update
   // Matches both "Frontend release update" and "Frontend release pipeline aborted"
-  header: /frontend\s+release\s+(?:update|pipeline\s+aborted)/i,
+  // Also handles "Front end" (with space) variant
+  header: /front\s*end\s+release\s+(?:update|pipeline\s+aborted)/i,
 
   // Specific header for normal release update
-  headerUpdate: /frontend\s+release\s+update/i,
+  headerUpdate: /front\s*end\s+release\s+update/i,
 
   // Specific header for Friday (pipeline aborted)
-  headerAborted: /frontend\s+release\s+pipeline\s+aborted/i,
+  headerAborted: /front\s*end\s+release\s+pipeline\s+aborted/i,
 
   // Friday indicator - often mentions it's Friday
   fridayIndicator: /it['']?s\s+friday/i,
@@ -113,6 +121,14 @@ export const TEST_MANAGER_UPDATE_PATTERNS = {
   goodToRelease: /good\s+to\s+(?:go|release)/i,
   canStartHotfixing: /we\s+(?:can|will)\s+(?:start\s+)?hotfix(?:ing)?/i,
   willHotfix: /will\s+hotfix/i,
+
+  // Postponement patterns - release delayed to another day
+  postponeRelease: /(?:going\s+to\s+)?postpone\s+the\s+release/i,
+  notReleasingToday: /(?:not\s+being\s+released|will\s+not\s+release|won'?t\s+release|no\s+release)\s+today/i,
+  releasePostponed: /release\s+(?:is\s+)?(?:postponed|delayed)/i,
+  releaseTomorrow: /(?:safer\s+to\s+)?release\s+(?:alongside\s+\w+\s+)?tomorrow/i,
+  // Thread confirmation of postponement/abort
+  threadAborted: /^aborted$/i,
 
   // Status patterns
   manualTestingDone: /manual\s+testing(?:\s+(?:and\s+rc|is))?[:\s]+done/i,

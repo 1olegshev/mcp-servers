@@ -2,7 +2,7 @@
 
 This directory contains the automated release status reporting system for the MCP (Model Context Protocol) project.
 
-> **🤖 AI Agent?** See root [AGENT.md](../AGENT.md) for tool reference, CLI testing, and architecture overview.
+> See root [README.md](../README.md) for project overview and server documentation links.
 
 ## Files
 

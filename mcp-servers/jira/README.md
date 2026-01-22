@@ -14,8 +14,6 @@ A Model Context Protocol server for interacting with Jira, focused on testing wo
 
 **Do not modify** without user request: `TEAM_QUERIES`, `NO_TEST_LABELS`, `DOMAIN_QUERIES` constants.
 
-For full documentation, see root [AGENT.md](../../AGENT.md).
-
 ---
 
 ## Features

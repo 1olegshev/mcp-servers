@@ -14,8 +14,6 @@ A Model Context Protocol server for interacting with Confluence, focused on QA d
 
 **Write safety**: Updates restricted to QA space. Use `create_qa_draft` for safe testing.
 
-For full documentation, see root [AGENT.md](../../AGENT.md).
-
 ---
 
 ## Features

@@ -1,6 +1,6 @@
 # Slack MCP Server - AI Agent Documentation
 
-> **Start with root [AGENT.md](../../../AGENT.md)** for project-wide tool matrix, decision trees, and common workflows. This doc is a deep dive into Slack server architecture.
+> See root [README.md](../../../README.md) for project overview. This doc is a deep dive into Slack server architecture.
 
 ## 🎯 Project Overview
 
@@ -226,15 +226,18 @@ if (legacyBot) return new WebClient(legacyBot);
 - **Key Methods**: `findTestManagerUpdate()`, `analyzeWithLLM()`, `formatTestManagerUpdate()`
 - **LLM Backend**: Ollama with Qwen3 30B (shared client via `ollama-client.ts`)
 - **Message Types**:
-  1. **Normal day**: "Frontend release update" - contains release decision (release/hotfix)
-  2. **Aborted**: "Frontend release pipeline aborted" - release postponed (can be any day)
+  1. **Normal release**: "Frontend release update" - decision to release or hotfix first
+  2. **Postponed release**: "Frontend release update" - decision to postpone (any day)
+  3. **Friday aborted**: "Frontend release pipeline aborted" - no release on Fridays
 - **Decision Types**:
   - `release` - Ready to release / good to go
   - `start_hotfixing` - Need to hotfix first
-  - `aborted` - Pipeline aborted / release postponed (unfixable blockers or Friday)
+  - `postponed` - Release delayed to another day (deliberate decision, e.g., "we are going to postpone")
+  - `aborted` - Pipeline aborted (technical reason, typically Friday)
   - `unknown` - No clear decision yet
 - **Features**:
-  - Detects both "Frontend release update" and "Frontend release pipeline aborted" messages
+  - Detects "Frontend release update" messages with various decision outcomes
+  - Recognizes postponement patterns: "postpone the release", "not releasing today", "safer to release tomorrow"
   - Fetches and analyzes thread replies to capture decision evolution
   - LLM extracts: decision, manual testing status, autotests status, hotfixes
   - Tracks if decision changed in thread (e.g., "hotfix" → "release")
@@ -242,8 +245,11 @@ if (legacyBot) return new WebClient(legacyBot);
   - Pattern-based fallback when Ollama unavailable
 - **Output**: Structured `TestManagerUpdate` with summary and link to original message
 - **Display**:
+  - Release: "✅ We can release"
+  - Hotfixing: "🔧 Hotfixing first"
+  - Postponed: "⏸️ Release postponed"
   - Friday aborted: "📅 No release today (Friday)" + note about Monday's release
-  - Non-Friday aborted: "⏸️ Release postponed"
+  - Non-Friday aborted: "🚫 Pipeline aborted"
 - **Exclusion**: These messages are excluded from blocker detection (they're summaries, not sources)
 
 #### 📊 **release-analyzer.ts**

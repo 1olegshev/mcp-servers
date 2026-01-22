@@ -15,8 +15,6 @@ A Model Context Protocol (MCP) server for interacting with Slack workspaces, des
 
 **Do not modify** without user request: `slack-auth.ts:validateWriteAccess()`, `TEST_BOT_IDS` in test-analyzer.ts.
 
-For full documentation, see root [AGENT.md](../../AGENT.md).
-
 ---
 
 ## Features

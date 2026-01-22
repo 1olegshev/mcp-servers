@@ -9,6 +9,19 @@
  *  [List of hotfixes]
  *  We can [start hotfixing][release] [responsible_dev]"
  *
+ * Or for postponed releases:
+ * "Front end release update - We are going to postpone the release today because of the following:
+ *  • [Reason 1]
+ *  • [Reason 2]
+ *  Safer to release alongside backend tomorrow."
+ *
+ * Decision types:
+ * - release: ready to release
+ * - start_hotfixing: need to hotfix before release
+ * - postponed: release delayed to another day (deliberate decision)
+ * - aborted: pipeline aborted (technical reason, typically Friday)
+ * - unknown: no clear decision yet
+ *
  * This message represents the human test manager's decision and should:
  * - Be reflected in the release status summary
  * - NOT be used as a source for blocker detection (it's a summary, not a source)
@@ -25,7 +38,7 @@ import { TEST_MANAGER_UPDATE_PATTERNS } from '../utils/patterns.js';
 
 export interface TestManagerUpdate {
   found: boolean;
-  decision?: 'release' | 'start_hotfixing' | 'aborted' | 'unknown';
+  decision?: 'release' | 'start_hotfixing' | 'postponed' | 'aborted' | 'unknown';
   decisionEvolved?: boolean;  // True if thread shows decision changed from original
   isFriday?: boolean;  // True if this is a Friday (no release) message
   manualTestingStatus?: 'done' | 'close_to_done' | 'in_progress' | 'unknown';
@@ -33,6 +46,7 @@ export interface TestManagerUpdate {
   responsibleDev?: string;
   hotfixes?: string[];
   summary?: string;  // LLM-generated summary of current state
+  postponementReason?: string;  // Reason for postponement if applicable
   rawMessage?: string;
   timestamp?: string;
   permalink?: string;
@@ -76,29 +90,37 @@ export class TestManagerUpdateDetector {
 
       // Also try search API for more reliable results
       // Search for both normal update and Friday aborted messages
+      // Note: Need to search for both "Frontend" and "Front end" variants
       const dateFilter = date === 'today' || !date ? 'on:today' : `on:${date}`;
 
-      // Try normal "Frontend release update" first
-      const searchResults = await this.slackClient.searchMessages(
+      // Search queries for both spelling variants
+      const updateQueries = [
         `"Frontend release update" ${dateFilter}`,
-        channel
-      );
+        `"Front end release update" ${dateFilter}`,
+      ];
 
-      for (const message of searchResults) {
-        if (this.isTestManagerUpdateMessage(message as SlackMessage)) {
-          return this.analyzeTestManagerUpdate(message as SlackMessage, channel);
+      const abortedQueries = [
+        `"Frontend release pipeline aborted" ${dateFilter}`,
+        `"Front end release pipeline aborted" ${dateFilter}`,
+      ];
+
+      // Try normal release update messages first
+      for (const query of updateQueries) {
+        const searchResults = await this.slackClient.searchMessages(query, channel);
+        for (const message of searchResults) {
+          if (this.isTestManagerUpdateMessage(message as SlackMessage)) {
+            return this.analyzeTestManagerUpdate(message as SlackMessage, channel);
+          }
         }
       }
 
-      // Try Friday "Frontend release pipeline aborted" message
-      const abortedResults = await this.slackClient.searchMessages(
-        `"Frontend release pipeline aborted" ${dateFilter}`,
-        channel
-      );
-
-      for (const message of abortedResults) {
-        if (this.isTestManagerUpdateMessage(message as SlackMessage)) {
-          return this.analyzeTestManagerUpdate(message as SlackMessage, channel);
+      // Try Friday "pipeline aborted" messages
+      for (const query of abortedQueries) {
+        const abortedResults = await this.slackClient.searchMessages(query, channel);
+        for (const message of abortedResults) {
+          if (this.isTestManagerUpdateMessage(message as SlackMessage)) {
+            return this.analyzeTestManagerUpdate(message as SlackMessage, channel);
+          }
         }
       }
 
@@ -130,7 +152,9 @@ export class TestManagerUpdateDetector {
       TEST_MANAGER_UPDATE_PATTERNS.canRelease.test(text) ||
       TEST_MANAGER_UPDATE_PATTERNS.goodToRelease.test(text) ||
       TEST_MANAGER_UPDATE_PATTERNS.canStartHotfixing.test(text) ||
-      TEST_MANAGER_UPDATE_PATTERNS.willHotfix.test(text);
+      TEST_MANAGER_UPDATE_PATTERNS.willHotfix.test(text) ||
+      // Postponement is also a valid decision
+      this.hasPostponementIndicators(text);
 
     const hasStatus =
       TEST_MANAGER_UPDATE_PATTERNS.manualTestingDone.test(text) ||
@@ -236,8 +260,12 @@ Extract the CURRENT state (thread updates override the main message):
 1. DECISION: What is the current release decision?
    - "release" = ready to release / good to go / we can release
    - "start_hotfixing" = need to hotfix first / will hotfix / hotfixing before release
-   - "aborted" = pipeline aborted / no release today (typically Friday)
+   - "postponed" = release delayed to another day / we are postponing / not releasing today / safer to release tomorrow
+   - "aborted" = pipeline aborted (technical reason, typically Friday)
    - "unknown" = no clear decision yet
+
+   NOTE: "postponed" is when the team DECIDES to delay (e.g., "we are going to postpone the release").
+         "aborted" is when the pipeline is technically aborted (e.g., "Frontend release pipeline aborted").
 
 2. DECISION_EVOLVED: Did the decision change in the thread? (true/false)
    Example: Main said "hotfix" but thread later says "good to release" = true
@@ -258,7 +286,7 @@ Extract the CURRENT state (thread updates override the main message):
 6. SUMMARY: One sentence describing the current state (max 100 chars)
 
 Output JSON only:
-{"decision": "release|start_hotfixing|aborted|unknown", "decisionEvolved": true/false, "manualTestingStatus": "done|close_to_done|in_progress|unknown", "autotestsStatus": "reviewed|pending|unknown", "hotfixes": ["TICKET-123"], "summary": "brief summary"}`;
+{"decision": "release|start_hotfixing|postponed|aborted|unknown", "decisionEvolved": true/false, "manualTestingStatus": "done|close_to_done|in_progress|unknown", "autotestsStatus": "reviewed|pending|unknown", "hotfixes": ["TICKET-123"], "summary": "brief summary"}`;
 
     const response = await this.ollamaClient.generate(prompt, {
       temperature: 0.2,
@@ -300,6 +328,7 @@ Output JSON only:
   private normalizeDecision(value: any): TestManagerUpdate['decision'] {
     if (value === 'release') return 'release';
     if (value === 'start_hotfixing' || value === 'hotfix' || value === 'hotfixing') return 'start_hotfixing';
+    if (value === 'postponed' || value === 'postpone' || value === 'delayed') return 'postponed';
     if (value === 'aborted' || value === 'abort' || value === 'no_release') return 'aborted';
     return 'unknown';
   }
@@ -349,11 +378,25 @@ Output JSON only:
         decisionEvolved = true;
         break;
       }
+      // Check for postponement/abort confirmation in thread
+      if (TEST_MANAGER_UPDATE_PATTERNS.threadAborted.test(replyText)) {
+        // Thread says "aborted" - check if main message indicates postponement
+        if (this.hasPostponementIndicators(text)) {
+          decision = 'postponed';
+        } else {
+          decision = 'aborted';
+        }
+        decisionEvolved = true;
+        break;
+      }
     }
 
     // If no decision in thread, check main message
     if (decision === 'unknown') {
-      if (TEST_MANAGER_UPDATE_PATTERNS.canRelease.test(text) ||
+      // Check for postponement first (it's a specific case)
+      if (this.hasPostponementIndicators(text)) {
+        decision = 'postponed';
+      } else if (TEST_MANAGER_UPDATE_PATTERNS.canRelease.test(text) ||
           TEST_MANAGER_UPDATE_PATTERNS.goodToRelease.test(text)) {
         decision = 'release';
       } else if (TEST_MANAGER_UPDATE_PATTERNS.canStartHotfixing.test(text) ||
@@ -412,6 +455,20 @@ Output JSON only:
   }
 
   /**
+   * Check if text contains postponement indicators
+   * This is different from "aborted" (pipeline aborted) - postponement is a deliberate
+   * decision to delay the release to another day
+   */
+  private hasPostponementIndicators(text: string): boolean {
+    return (
+      TEST_MANAGER_UPDATE_PATTERNS.postponeRelease.test(text) ||
+      TEST_MANAGER_UPDATE_PATTERNS.notReleasingToday.test(text) ||
+      TEST_MANAGER_UPDATE_PATTERNS.releasePostponed.test(text) ||
+      TEST_MANAGER_UPDATE_PATTERNS.releaseTomorrow.test(text)
+    );
+  }
+
+  /**
    * Format the test manager update for display in the report
    */
   formatTestManagerUpdate(update: TestManagerUpdate): string {
@@ -426,11 +483,13 @@ Output JSON only:
       output += `✅ *We can release*`;
     } else if (update.decision === 'start_hotfixing') {
       output += `🔧 *Hotfixing first*`;
+    } else if (update.decision === 'postponed') {
+      output += `⏸️ *Release postponed*`;
     } else if (update.decision === 'aborted') {
       if (update.isFriday) {
         output += `📅 *No release today (Friday)*`;
       } else {
-        output += `⏸️ *Release postponed*`;
+        output += `🚫 *Pipeline aborted*`;
       }
     } else {
       output += `⏳ *Decision pending*`;
@@ -452,7 +511,7 @@ Output JSON only:
       output += `> ${update.summary}\n`;
     }
 
-    // Status summary (not applicable for Friday/aborted)
+    // Status summary (show for all decisions except aborted, as postponed releases may have partial status)
     if (update.decision !== 'aborted') {
       const statuses: string[] = [];
       if (update.manualTestingStatus === 'done') {
