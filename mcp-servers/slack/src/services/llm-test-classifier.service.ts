@@ -66,7 +66,23 @@ export class LLMTestClassifierService {
 
     try {
       const prompt = this.buildPrompt(originalMessage, replies, failedTests);
+      const debugLLM = process.env.DEBUG_LLM === 'true';
+
+      if (debugLLM) {
+        console.error('\n=== LLM CLASSIFIER DEBUG ===');
+        console.error('Failed tests:', failedTests);
+        console.error('Thread content being sent to LLM:');
+        console.error(prompt.split('Thread conversation')[1]?.split('STATUS OPTIONS')[0] || 'N/A');
+      }
+
       const response = await this.callOllama(prompt);
+
+      if (debugLLM) {
+        console.error('\nLLM RAW RESPONSE:');
+        console.error(response);
+        console.error('=== END LLM DEBUG ===\n');
+      }
+
       return this.parseResponse(response, failedTests);
     } catch (error) {
       console.error('LLM test classification failed:', error);
@@ -96,13 +112,18 @@ export class LLMTestClassifierService {
     };
 
     // Include full thread content with user IDs preserved for tag matching
+    // Mark resolution signals explicitly so LLM recognizes them
+    const resolutionPattern = /\b(it\s+did\s+pass|now\s+it\s+pass|passes\s+now|works\s+now|it\s+pass(?:es)?|did\s+pass|pass(?:ed|es|ing)?\s+locally|passing\s+now|fixed|resolved|flaky|flakey)\b/i;
     const threadContent = [
       `[Bot] ${collectText(originalMessage)}`,
       ...replies.map((r) => {
         const isBot = !!(r as any).bot_id;
         const userId = (r as any).user || 'unknown';
         const prefix = isBot ? '[Bot]' : `[User:${userId}]`;
-        return `${prefix} ${collectText(r)}`;
+        const text = collectText(r);
+        const hasResolution = resolutionPattern.test(text);
+        const marker = hasResolution ? ' [RESOLUTION SIGNAL]' : '';
+        return `${prefix}${marker} ${text}`;
       })
     ].join('\n\n');
 
@@ -117,14 +138,15 @@ Tests "still_failing" or "needs_attention" mean we should NOT release until addr
 Failed tests to classify:
 ${numberedTests}
 
-Thread conversation:
+Thread conversation (messages marked [RESOLUTION SIGNAL] contain phrases indicating the issue was resolved):
 ${threadContent}
 
 STATUS OPTIONS (use exactly these values):
-- resolved: Test passed on rerun, or someone confirmed it's fixed ("I fixed it", "passing now", "fix merged", "fixed them so they pass")
-- not_blocking: Explicitly stated as not blocking release ("not blocking", "behind a feature flag", "not a release blocker", "behind the role", "not blocking as per")
-- fix_in_progress: Someone is actively fixing or said they fixed it for next run ("I'll fix", "working on fix", "I have fixed them", "will check", "need to update the spec")
-- flakey: Passes locally but fails in CI - environment-specific, NOT a real bug ("passing locally", "passed after rerun", "works for me locally", "can be stabilised")
+- resolved: Test passed on rerun, someone confirmed it's fixed, or root cause identified and test passes when run correctly ("I fixed it", "passing now", "fix merged", "it did pass", "now it passes", "works when run with")
+- not_blocking: Explicitly stated as not blocking release, or it's a test problem not a product bug ("not blocking", "isn't blocking", "behind a feature flag", "not a release blocker", "no issue", "not an issue", "test problem", "test bug", "forgot to update", "test data change", "not a regression", "data change")
+- blocker: Explicitly stated as blocking release ("release blocker", "this is blocking", "blocker for release", "blocks the release")
+- fix_in_progress: Someone is actively fixing, or it's being handled ("I'll fix", "I'll try to fix", "working on fix", "work in progress", "work in progress by [name]", "WIP", "[name] is working on it", "handled by [name]", "I have fixed them", "will check", "need to update", "seems like a test issue")
+- flakey: Passes locally but fails in CI - environment-specific, NOT a real bug ("passed locally", "passes locally", "passing locally", "passed locally for me", "passes locally for me", "passed after rerun", "works for me locally", "can be stabilised", "flaky")
 - needs_attention: Confirmed failing locally - real bug that needs fixing ("failing locally")
 - investigating: Someone is looking into it ("I'll look", "checking", "will investigate", "I'll have a look")
 - tracked: Known issue with existing ticket ("there's a ticket", "open ticket", "same as last time", link to Jira/KAHOOT-)
@@ -132,17 +154,24 @@ STATUS OPTIONS (use exactly these values):
 - unclear: Test NOT mentioned in ANY reply - no one has commented on it yet
 
 CRITICAL RULES:
-1. "passing locally" or "passed after rerun" → flakey (environment-specific)
-2. "failing locally" → needs_attention (confirmed real bug!)
+1. "passed locally" or "passes locally" or "passing locally" or "passed after rerun" → flakey (environment-specific)
+2. "failing locally" → needs_attention (confirmed real bug!) - BUT check rules 8 and 10 first!
 3. "not blocking" or "behind a role/flag" → not_blocking (safe for release!)
 4. "I fixed it" or "I have fixed them for next run" → fix_in_progress
 5. If a user is tagged (cc @someone) for a test and that user replies, assume they're discussing that test
 6. "same as last time" + ticket reference → tracked
 7. If test is NOT mentioned in any human reply → unclear
-8. Look at the LATEST status mentioned - if someone said "failing locally" then later "I fixed it", use fix_in_progress
+8. MOST IMPORTANT - Find the LAST message that discusses pass/fail status. Ignore follow-up discussions about future work, refactoring, or suggestions - those are NOT relevant to release decision. The last STATUS UPDATE (pass/fail/fixed/still broken) determines the classification. Messages with [RESOLUTION SIGNAL] indicate a status update saying "it works now".
+9. If the SAME user who reported "failing locally" later says "it did pass" or "now it works" → resolved (they confirmed their own issue is fixed)
+10. If message says "still failing" BUT also mentions "work in progress", "work in progress by [name]", "WIP", or "[name] is working on it" → fix_in_progress (acknowledging failure + someone is assigned = not blocking for release)
+11. CRITICAL: If one person says "fails locally" but a DIFFERENT person later says "passes locally" or "passing locally for me" → flakey (environment-specific - works for some people but not others)
+12. CONTEXT: If there's only ONE failed test being discussed, any reply about pass/fail status applies to that test even if the test name isn't repeated. Example: Thread about "test-x.ts fails" → reply "passed locally, flaky" → test-x.ts is flakey.
+13. OVERRIDE RULE: If User A says "test-x fails locally" and User B LATER says "test-x passing locally" or "test-x passes locally for me" → the test is FLAKEY, not needs_attention. The LATER message supersedes the earlier one. This is environment-specific behavior.
+
+IMPORTANT: You MUST return a classification for EVERY test listed above. If there are 3 tests, return 3 objects in the array.
 
 Output ONLY valid JSON (no markdown, no explanation):
-{"tests":[{"id":1,"status":"not_blocking","confidence":90,"reason":"User explicitly said not blocking"}]}`;
+{"tests":[{"id":1,"status":"flakey","confidence":90,"reason":"passes locally"},{"id":2,"status":"fix_in_progress","confidence":85,"reason":"user said will fix"}]}`;
   }
 
   /**
@@ -163,6 +192,7 @@ Output ONLY valid JSON (no markdown, no explanation):
     const statusMap: Record<string, string> = {
       'resolved': '✅ resolved',
       'not_blocking': '✅ not blocking',
+      'blocker': '🚫 blocker',
       'fix_in_progress': '🔄 fix in progress',
       'tracked': '📋 tracked (known issue)',
       'investigating': '🔍 investigating',
@@ -192,8 +222,11 @@ Output ONLY valid JSON (no markdown, no explanation):
       const parsed = JSON.parse(jsonStr);
       const perTestStatus: Record<string, TestStatusClassification> = {};
 
-      if (Array.isArray(parsed.tests)) {
-        for (const test of parsed.tests) {
+      // Handle both formats: {"tests": [...]} or just [...]
+      const testsArray = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.tests) ? parsed.tests : null);
+
+      if (testsArray) {
+        for (const test of testsArray) {
           // Support both id (1-indexed number) and name (string) formats
           let testName: string | null = null;
           if (typeof test.id === 'number' && test.id >= 1 && test.id <= failedTests.length) {

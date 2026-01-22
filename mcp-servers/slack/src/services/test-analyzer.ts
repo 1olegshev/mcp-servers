@@ -30,7 +30,7 @@ export class TestAnalyzerService {
     messages?: SlackMessage[]
   ): Promise<TestResult[]> {
     // Use DateUtils for date window calculations
-    const { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After } =
+    const { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After, fridayCutoffTs, dailyCutoffTs } =
       DateUtils.getTestSearchWindows(date, MAX_LOOKBACK_DAYS);
 
     // Suites mapping
@@ -56,8 +56,10 @@ export class TestAnalyzerService {
       // matches already sorted desc per client
       for (const m of matches) {
         if (!m.ts) continue;
-        // Allow today's messages when searching today, otherwise exclude messages >= startOfToday
         const msgTime = parseFloat(m.ts) * 1000;
+        // Daily cutoff: exclude tests after 16:00 CET (they're for next day's release)
+        if (msgTime >= dailyCutoffTs) continue;
+        // Allow today's messages when searching today, otherwise exclude messages >= startOfToday
         const isToday = after === todayDateStr;
         if (!isToday && msgTime >= startOfToday.getTime()) continue;
         try {
@@ -119,6 +121,11 @@ export class TestAnalyzerService {
       for (const m of history) {
         // Strict filter: only messages from known test bot IDs
         if (!m.bot_id || !TEST_BOT_IDS.includes(m.bot_id)) continue;
+        // Daily cutoff: exclude tests after 16:00 CET (they're for next day's release)
+        if (m.ts) {
+          const msgTime = parseFloat(m.ts) * 1000;
+          if (msgTime >= dailyCutoffTs) continue;
+        }
         const type = this.determineTestTypeFromBot(m, (m.text || ''));
         if (type === 'Unknown Test' || found.has(type)) continue;
         found.set(type, m);

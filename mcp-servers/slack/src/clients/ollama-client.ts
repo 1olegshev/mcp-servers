@@ -147,11 +147,30 @@ export class OllamaClient {
   }
 
   /**
-   * Extract balanced JSON from text - handles nested braces correctly
+   * Extract balanced JSON from text - handles nested braces/brackets correctly
+   * Supports both objects {...} and arrays [...]
    */
   static extractBalancedJSON(text: string): string | null {
-    const start = text.indexOf('{');
-    if (start === -1) return null;
+    // Find first [ or { to determine if it's an array or object
+    const objStart = text.indexOf('{');
+    const arrStart = text.indexOf('[');
+
+    // Pick whichever comes first (or exists)
+    let start: number;
+    let openChar: string;
+    let closeChar: string;
+
+    if (arrStart !== -1 && (objStart === -1 || arrStart < objStart)) {
+      start = arrStart;
+      openChar = '[';
+      closeChar = ']';
+    } else if (objStart !== -1) {
+      start = objStart;
+      openChar = '{';
+      closeChar = '}';
+    } else {
+      return null;
+    }
 
     let depth = 0;
     let inString = false;
@@ -177,8 +196,8 @@ export class OllamaClient {
 
       if (inString) continue;
 
-      if (char === '{') depth++;
-      else if (char === '}') {
+      if (char === openChar || char === '{' || char === '[') depth++;
+      else if (char === closeChar || char === '}' || char === ']') {
         depth--;
         if (depth === 0) {
           return text.substring(start, i + 1);

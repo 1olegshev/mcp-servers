@@ -76,6 +76,25 @@ export class ThreadAnalyzerService {
                 llmResult.perTestStatus
               );
 
+              // Post-process: check last few messages for clear resolution signal
+              // This overrides LLM "needs_attention" when thread ends with "it did pass" etc.
+              if (replies.length > 0) {
+                const resolutionPattern = /\b(it\s+did\s+pass|now\s+it\s+pass|passes\s+now|works\s+now|it\s+pass(?:es)?|did\s+pass)\b/i;
+                // Check last 3 messages for resolution signal (in case final message is follow-up discussion)
+                const lastMessages = replies.slice(-3);
+                const hasResolution = lastMessages.some(msg =>
+                  resolutionPattern.test(extractAllMessageText(msg).text)
+                );
+                if (hasResolution) {
+                  for (const testName of Object.keys(mergedPerTestStatus)) {
+                    if (mergedPerTestStatus[testName].toLowerCase().includes('needs attention')) {
+                      mergedPerTestStatus[testName] = '✅ resolved';
+                      console.error(`Post-process override: ${testName} → resolved (recent message has resolution signal)`);
+                    }
+                  }
+                }
+              }
+
               const sectionSummary = this.calculateSectionStatus(mergedPerTestStatus);
 
               console.error(`LLM test classification complete: ${llmResult.overallSummary}`);
@@ -196,11 +215,24 @@ export class ThreadAnalyzerService {
     const allMessages = [originalMessage, ...replies];
     for (const message of allMessages) {
       const messageText = collectText(message);
-      
+
+      // Check if message mentions any specific test
+      const mentionedTests: string[] = [];
       for (const t of finalFailed) {
         const testPattern = new RegExp(`${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.ts)?`, 'i');
-        
         if (testPattern.test(messageText)) {
+          mentionedTests.push(t);
+        }
+      }
+
+      // If no specific test mentioned but message has status info, apply to ALL tests (generic follow-up)
+      const hasStatusKeyword = /(pass|fail|flak|fix|resolved|blocked|investigat|locally)/i.test(messageText);
+      const testsToAnalyze = mentionedTests.length > 0 ? mentionedTests : (hasStatusKeyword ? finalFailed : []);
+
+      for (const t of testsToAnalyze) {
+        const testMentioned = mentionedTests.includes(t);
+
+        if (testMentioned || (mentionedTests.length === 0 && hasStatusKeyword)) {
           const context = messageText.toLowerCase();
           const isHuman = !!message.user && !(message as any).bot_id;
           let bestStatus = '';
@@ -209,7 +241,7 @@ export class ThreadAnalyzerService {
           // Define status patterns with priorities (check most specific first)
           const statusPatterns = [
             { pattern: /manual\s+re[-\s]?run\s+successful|passed\s+on\s+re[-\s]?run|re[-\s]?run\s+passed/, status: '✅ resolved' },
-            { pattern: /(passed|passing|fixed|resolved|green)/, status: '✅ resolved' },
+            { pattern: /(pass(?:ed|es|ing)?|did\s+pass|fixed|resolved|green)/, status: '✅ resolved' },
             { pattern: /\bnot\s+blocking\b/, status: '✅ not blocking' },
             // Active progression states
             { pattern: /(on\s+me|my\s+responsibility|i'll\s+take|assigned\s+to\s+me)/, status: '🔄 assigned' },
@@ -218,7 +250,7 @@ export class ThreadAnalyzerService {
             // Context/acknowledgement states
             { pattern: /(known\s+issue|already\s+aware|acknowledged)/, status: 'ℹ️ acknowledged' },
             { pattern: /(cannot\s+repro(duce)?|can[’'`]t\s+repro(duce)?|cant\s+repro(duce)?)/, status: 'ℹ️ needs repro' },
-            { pattern: /(passes|works)\s+(for\s+me\s+)?locally|\bflak(?:e|y)\b/, status: '⚠️ flakey/env-specific' },
+            { pattern: /(pass(?:es|ed|ing)?|works)\s+(for\s+me\s+)?locally|\bflak(?:e|y)\b/, status: '⚠️ flakey/env-specific' },
             { pattern: /(test.*updat|button.*moved|selector.*chang|selector.*moved)/, status: '🛠️ test update required' },
             { pattern: /(root\s+cause|specific.*fix|technical.*reason)/, status: '🔍 root cause identified' },
             { pattern: /(explained|setup\s+issue|test\s+issue|just.*issue)/, status: 'ℹ️ explained' },

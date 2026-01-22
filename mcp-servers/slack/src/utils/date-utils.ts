@@ -143,13 +143,27 @@ export class DateUtils {
     beforeDateStr: string;
     phase1Dates: string[];
     phase2After: string;
+    fridayCutoffTs?: number;
+    dailyCutoffTs: number;
   } {
     const startOfToday = this.getStartOfDay(dateStr);
-    const todayDateStr = this.formatDateString(new Date());
+    // Use requested date, not current date - important for historical queries
+    const targetDate = dateStr && dateStr !== 'today' ? new Date(dateStr) : new Date();
+    const todayDateStr = this.formatDateString(targetDate);
     const beforeDateStr = this.formatDateString(this.addDays(startOfToday, 1));
 
-    const dayOfWeek = (dateStr ? (dateStr === 'today' ? new Date() : new Date(dateStr)) : new Date()).getDay();
+    const dayOfWeek = targetDate.getDay();
     const phase1Dates: string[] = [];
+
+    // Daily cutoff: tests after 16:00 CET (15:00 UTC) are for the NEXT day's release
+    // This applies to ALL days, not just Fridays
+    const dailyCutoff = new Date(startOfToday);
+    dailyCutoff.setUTCHours(15, 0, 0, 0); // 16:00 CET = 15:00 UTC (winter time)
+    const dailyCutoffTs = dailyCutoff.getTime();
+
+    // Friday cutoff is the same as daily cutoff but named separately for clarity
+    // (Friday tests after 16:00 CET are for Monday's build)
+    const fridayCutoffTs = dayOfWeek === 5 ? dailyCutoffTs : undefined;
 
     if (dayOfWeek === 1) {
       // Monday: try Sun -> Sat -> Fri
@@ -161,11 +175,11 @@ export class DateUtils {
       phase1Dates.push(this.formatDateString(this.addDays(startOfToday, -1)));
     }
 
-    // Always include today as a search window for each suite
+    // Include the requested date as a search window
     phase1Dates.unshift(todayDateStr);
 
     const phase2After = this.formatDateString(this.addDays(startOfToday, -maxLookbackDays));
 
-    return { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After };
+    return { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After, fridayCutoffTs, dailyCutoffTs };
   }
 }

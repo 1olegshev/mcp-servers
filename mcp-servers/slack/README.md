@@ -136,6 +136,25 @@ channel: "C09BW9Y2HSN"
 
 After rebuilding (`npm run build`), VSCode caches the old server. Restart VSCode (Cmd+Shift+P → "Reload Window") or test via CLI.
 
+### LLM Classification Debugging
+
+When auto test status classification seems incorrect, enable verbose logging:
+
+```bash
+DEBUG_LLM=true node dist/server.js
+```
+
+This shows:
+- Failed tests being classified
+- Thread content sent to LLM (with `[RESOLUTION SIGNAL]` markers)
+- Raw LLM response
+
+**What to look for:**
+- Is the thread content complete? Check if relevant replies are included
+- Does `[RESOLUTION SIGNAL]` appear on messages with "passed locally", "fixed", etc.?
+- Is LLM returning correct JSON format? Should be `[{id:1, status:"...", ...}]`
+- Does LLM return a classification for every test? If not, check the prompt
+
 ## Development
 
 ```bash
