@@ -23,6 +23,7 @@
 ```
 src/
 ├── server.ts                 # MCP server entry point, tool routing
+├── simple-xoxc.ts            # XOXC/XOXD WebClient factory (used by slack-auth.ts)
 ├── auth/
 │   └── slack-auth.ts         # XOXC/XOXD auth, write access validation
 ├── clients/
@@ -67,8 +68,6 @@ issue-detection/
 │   └── llm-classifier.service.ts    # LLM semantic classification
 └── models/
     ├── service-interfaces.ts        # Type-safe service contracts
-    ├── ticket-context.model.ts      # Ticket data models
-    ├── detection-config.model.ts    # Configuration
     └── detection-result.model.ts    # Result models
 ```
 

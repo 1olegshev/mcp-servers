@@ -71,17 +71,3 @@ export interface TicketContext {
   threadLink?: string;
   sourceText?: string;
 }
-
-export interface DetectionResult {
-  issues: Issue[];
-  analyzedThreads: number;
-  totalMessages: number;
-  processingTime: number;
-}
-
-export interface DetectionConfig {
-  channel: string;
-  date: string;
-  severity: 'blocking' | 'critical' | 'both';
-  includeResolved: boolean;
-}

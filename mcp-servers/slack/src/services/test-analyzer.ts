@@ -4,23 +4,13 @@
  */
 
 import { SlackClient } from '../clients/slack-client.js';
-import { TEST_BOT_IDS, JENKINS_PATTERN, EARLY_MORNING_CUTOFF, MAX_LOOKBACK_DAYS } from './test-bot-config.js';
+import { TEST_BOT_IDS, EARLY_MORNING_CUTOFF, MAX_LOOKBACK_DAYS } from './test-bot-config.js';
 import { TextAnalyzer } from '../utils/analyzers.js';
 import { DateUtils } from '../utils/date-utils.js';
 import { TestResult, SlackMessage } from '../types/index.js';
 import { extractAllMessageText, parseTestResultsFromText } from '../utils/message-extractor.js';
 import { ThreadAnalyzerService } from './thread-analyzer.js';
 import { TestReportFormatter } from './test-report-formatter.js';
-// Note: Debug logging can be enabled for troubleshooting
-
-const logDebug = (msg: string) => {
-  // Uncomment the following lines when debugging is needed:
-  // try {
-  //   import('fs').then(fs => {
-  //     fs.appendFileSync('/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack/slack-mcp-debug.log', `${msg}\n`);
-  //   });
-  // } catch {}
-};
 
 export class TestAnalyzerService {
   private threads: ThreadAnalyzerService;
@@ -153,21 +143,16 @@ export class TestAnalyzerService {
         const { status: fallbackStatus } = TextAnalyzer.analyzeTestResult(message);
         status = fallbackStatus;
       }
-      
-      logDebug(`[${new Date().toISOString()}] STATUS CHECK: ${testType} - initial status: "${status}", parsed: "${parsedResults.status}"`);
-      
+
       // Cypress-specific status detection from blocks content (override if clear)
       if (testType === 'Cypress (general)' || testType === 'Cypress (unverified)') {
         const allText = extractedText.text || '';
-        logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - extracted text: "${allText}"`);
         // Remove markdown formatting and check for status patterns
         const cleanText = allText.replace(/\*/g, '').toLowerCase();
-        logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - clean text: "${cleanText}"`);
         const passPattern = /test results:\s*passed|passed run|failed:\s*0\b.*\bpassed:\s*\d+/i;
         const failPattern = /test results:\s*failed|failed run\b/i;
         if (passPattern.test(cleanText)) {
           status = 'passed';
-          logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - OVERRIDE -> PASSED (by blocks)`);
         } else if (failPattern.test(cleanText)) {
           status = 'failed';
         } else {
@@ -176,10 +161,8 @@ export class TestAnalyzerService {
             const full = await this.slackClient.getMessageDetails(channel, message.ts!);
             const fullText = extractAllMessageText(full).text || '';
             const fullClean = fullText.replace(/\*/g, '').toLowerCase();
-            logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - full clean text: "${fullClean}"`);
             if (passPattern.test(fullClean)) {
               status = 'passed';
-              logDebug(`[${new Date().toISOString()}] DEBUG: ${testType} - OVERRIDE -> PASSED (by full blocks)`);
             } else if (failPattern.test(fullClean)) {
               status = 'failed';
             }

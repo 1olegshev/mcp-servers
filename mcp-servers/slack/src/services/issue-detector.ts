@@ -200,15 +200,4 @@ export class IssueDetectorService {
 
     return output;
   }
-
-
-
-
-
-
-
-
-
-
-
 }
