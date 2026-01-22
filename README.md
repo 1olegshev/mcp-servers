@@ -52,8 +52,17 @@ SLACK_MCP_XOXD_TOKEN=xoxd-your-cookie-value
 
 See [slack/README.md](mcp-servers/slack/README.md#how-to-extract-tokens) for detailed instructions.
 
-### VS Code MCP Integration
+### MCP Configuration Files
 
+This project includes multiple MCP configuration files for different purposes:
+
+| File | Purpose |
+|------|---------|
+| `.vscode/mcp.json` | VS Code Claude extension - edit paths and restart VS Code |
+| `.mcp.json` | Claude Desktop app configuration |
+| `mcp_config.json` | Reference config with npm script commands |
+
+**VS Code Setup:**
 ```bash
 cp .vscode/mcp.json.example .vscode/mcp.json
 # Update paths in mcp.json to your project location
@@ -78,9 +87,8 @@ The Slack server is the most complex and has additional documentation:
 
 | Doc | Purpose |
 |-----|---------|
-| [AI_AGENT_GUIDE.md](mcp-servers/slack/docs/AI_AGENT_GUIDE.md) | Architecture, file structure, patterns |
-| [QUICK_REFERENCE.md](mcp-servers/slack/docs/QUICK_REFERENCE.md) | Code examples, common modifications |
-| [TYPE_SYSTEM.md](mcp-servers/slack/docs/TYPE_SYSTEM.md) | Type definitions, data flows |
+| [ARCHITECTURE.md](mcp-servers/slack/docs/ARCHITECTURE.md) | File structure, data flows, modification patterns |
+| [QUICK_REFERENCE.md](mcp-servers/slack/docs/QUICK_REFERENCE.md) | Copy-paste code snippets |
 | [SECURITY.md](mcp-servers/slack/SECURITY.md) | Auth security, threat model |
 | [TESTING_DOCUMENTATION.md](mcp-servers/slack/TESTING_DOCUMENTATION.md) | Test coverage, Jest setup |
 
@@ -91,12 +99,15 @@ The Slack server is the most complex and has additional documentation:
 | Full release status report | `get_comprehensive_release_overview` | release-coordinator |
 | Find blocking issues | `get_blocking_issues` | slack |
 | Check auto test results | `get_auto_test_status` | slack |
+| Get test manager decision | `get_test_manager_update` | slack |
 | Count tickets by status | `get_testing_summary` | jira |
 | List tickets in QA/Testing | `get_testing_remaining` | jira |
 | Search Jira with JQL | `search_issues` | jira |
 | Read Confluence page | `read_article` | confluence |
 | Search Confluence | `search_pages` | confluence |
 | Post to Slack | `send_message` | slack (restricted to #qa-release-status) |
+| Debug bot messages | `find_bot_messages` | slack |
+| Get full message details | `get_message_details` | slack |
 
 ## Architecture Invariants
 

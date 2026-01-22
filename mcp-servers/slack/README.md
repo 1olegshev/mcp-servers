@@ -1,123 +1,75 @@
 # Slack MCP Server
 
-A Model Context Protocol (MCP) server for interacting with Slack workspaces, designed specifically for release management and QA coordination workflows.
+A Model Context Protocol (MCP) server for Slack integration, designed for release management and QA coordination.
 
-## AI Agent Quick Reference
+## Quick Reference
 
 | What | Where |
 |------|-------|
-| Entry point | [src/server.ts](src/server.ts) — tool definitions + handlers |
-| API client | [src/clients/slack-client.ts](src/clients/slack-client.ts) — Slack Web API wrapper |
-| Auth | [src/auth/slack-auth.ts](src/auth/slack-auth.ts) — XOXC/XOXD session auth |
-| Types | [src/types/index.ts](src/types/index.ts) — TypeScript definitions |
-| Build | `npm run build` |
-| Tools | 9 read, 2 write (send_message restricted to #qa-release-status) |
+| Entry point | [src/server.ts](src/server.ts) |
+| Auth | [src/auth/slack-auth.ts](src/auth/slack-auth.ts) |
+| API client | [src/clients/slack-client.ts](src/clients/slack-client.ts) |
+| Architecture docs | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Code snippets | [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) |
 
-**Do not modify** without user request: `slack-auth.ts:validateWriteAccess()`, `TEST_BOT_IDS` in test-analyzer.ts.
-
----
+**Do not modify** without explicit request: `slack-auth.ts:validateWriteAccess()`, `TEST_BOT_IDS` in test-bot-config.ts.
 
 ## Features
 
 - **Release Status Analysis**: Analyze testing channels to determine release readiness
-- **Auto Test Monitoring**: Detection and analysis of automated test results (Cypress, Playwright) with thread review analysis
-- **Blocking Issue Detection**: Identification of critical and blocking issues with JIRA ticket extraction
-- **Enhanced Test Reporting**: Improved formatting with clear "All tests passed" messages for successful tests
-- **Channel Communication**: Read from any channel, write only to authorized release channels
-- **Secure Channel Access**: Restricted write permissions for controlled release communication
-- **Modular Architecture**: Clean separation of concerns with dedicated services for analysis, formatting, and communication
+- **Auto Test Monitoring**: Detect and analyze Cypress/Playwright results with thread review analysis
+- **Blocking Issue Detection**: Identify critical/blocking issues with JIRA ticket extraction
+- **Test Manager Updates**: Detect daily release decisions (release/hotfix/postpone)
 - **LLM Classification**: Optional Ollama/Qwen3 integration for semantic blocker classification
+- **Channel Communication**: Read from any channel, write only to `#qa-release-status`
 
 ## Authentication
 
-### Overview
+### Token Types
 
-This server uses **XOXC/XOXD session-based authentication** instead of traditional bot tokens. This approach provides:
-
-- **Real user session access** with full workspace permissions
-- **No bot installation required** 
-- **Access to private channels** and DMs
-- **Simplified setup** for internal tools
-
-### Authentication Method Details
-
-#### XOXC Token (Session Cookie)
-- **Purpose**: Primary authentication token representing an active user session
-- **Format**: `xoxc-...` followed by a long alphanumeric string
-- **Source**: Extracted from browser cookies when logged into Slack web
-- **Security**: Acts as your personal session - treat as password
-
-#### XOXD Token (Session Secret)
-- **Purpose**: Secondary authentication parameter that pairs with XOXC
-- **Format**: `xoxd-...` followed by a numeric string
-- **Source**: Found in browser developer tools during Slack web requests
-- **Security**: Required together with XOXC for complete authentication
+| Token | Format | Source |
+|-------|--------|--------|
+| XOXC | `xoxc-...` | Browser DevTools → Network → Authorization header |
+| XOXD | `xoxd-...` | Browser DevTools → Application → Cookies → `d` |
 
 ### How to Extract Tokens
 
-1. **Open Slack in your browser** and log in to your workspace
-2. **Open Developer Tools** (F12 or right-click → Inspect)
-3. **Go to Application tab** → Cookies → `https://app.slack.com`
-4. **Find the `d` cookie** - this is your XOXD token (format: `xoxd-...`)
-5. **Go to Network tab** and reload the page
-6. **Look for any API request** to `api.slack.com`
-7. **In the request headers**, find `Authorization: Bearer xoxc-...` - this is your XOXC token
+1. Open Slack in browser, log in
+2. DevTools (F12) → **Application** → **Cookies** → `https://app.slack.com`
+3. Find `d` cookie → this is **XOXD**
+4. **Network** tab → reload → find `api.slack.com` request
+5. In headers, find `Authorization: Bearer xoxc-...` → this is **XOXC**
 
 ### Environment Setup
 
-Create a `.env` file in the project root:
-
-```env
-SLACK_XOXC_TOKEN=xoxc-your-token-here
-SLACK_XOXD_TOKEN=xoxd-your-token-here
+```bash
+# In project root .env
+SLACK_MCP_XOXC_TOKEN=xoxc-your-token-here
+SLACK_MCP_XOXD_TOKEN=xoxd-your-token-here
 ```
 
-### Authentication Implementation
+### Security Notes
 
-The server uses a simplified authentication approach in `simple-xoxc.ts`:
+- Tokens are equivalent to your Slack password
+- Tokens expire when you log out
+- Actions appear as performed by the token owner
+- **Write access restricted** to `#qa-release-status` only (hardcoded in `slack-auth.ts`)
 
-```typescript
-export function createXOXCWebClient(xoxcToken: string, xoxdToken: string): WebClient {
-  return new WebClient(xoxcToken, {
-    headers: {
-      Cookie: `d=${xoxdToken};`,
-    },
-  });
-}
-```
+## Available Tools
 
-### Security Considerations
-
-#### ⚠️ Important Security Notes
-
-1. **Token Sensitivity**: XOXC/XOXD tokens are equivalent to your Slack password
-2. **Session Expiration**: Tokens expire when you log out or session times out
-3. **Personal Access**: Tokens grant access to everything you can see in Slack
-4. **No Audit Trail**: Actions appear as if performed by the token owner
-5. **Workspace Specific**: Tokens only work for the workspace they were extracted from
-
-#### Best Practices
-
-- **Rotate tokens regularly** (extract new ones periodically)
-- **Use dedicated service accounts** when possible
-- **Store tokens securely** (never commit to version control)
-- **Monitor token usage** through Slack audit logs
-- **Limit server access** to trusted systems only
-
-#### Channel Write Restrictions
-
-For security and process control, the server implements **strict write permissions**:
-
-```typescript
-// BUSINESS REQUIREMENT: Only allow posting to qa-release-status channel
-const allowedChannels = ['qa-release-status', '#qa-release-status', 'C09BW9Y2HSN'];
-```
-
-**Why this restriction exists:**
-- Prevents accidental posts to wrong channels
-- Ensures release communication follows proper channels
-- Maintains audit trail for release decisions
-- Reduces risk of sensitive information leakage
+| Tool | Purpose | Safe |
+|------|---------|------|
+| `get_release_status_overview` | Comprehensive release readiness report | Read |
+| `get_auto_test_status` | Auto test results (Cypress/Playwright) + thread review | Read |
+| `get_blocking_issues` | Critical/blocking issue detection with JIRA extraction | Read |
+| `get_test_manager_update` | Test manager's daily release decision | Read |
+| `get_channel_history` | Read messages from any channel | Read |
+| `get_thread_replies` | Read thread discussions | Read |
+| `search_messages` | Search across workspace | Read |
+| `list_channels` | List workspace channels | Read |
+| `get_message_details` | Full message including blocks/attachments | Read |
+| `find_bot_messages` | Debug bot message structure | Read |
+| `send_message` | Post messages | Write (restricted) |
 
 ## Usage
 
@@ -128,185 +80,68 @@ npm install
 npm run build
 ```
 
-### Performance Tips
-
-**Use Channel IDs for Better Performance:**
-- Channel names like `#qa-release-status` require expensive API lookups
-- Channel IDs like `C09BW9Y2HSN` resolve instantly
-- For automated/repeated operations, prefer channel IDs
-
-```javascript
-// Slow: requires fetching all channels to resolve name
-channel: "#qa-release-status"
-
-// Fast: direct channel ID lookup
-channel: "C09BW9Y2HSN"
-```
-
-### Available Tools
-
-1. **get_release_status_overview** – Comprehensive release readiness analysis with formatted output
-2. **get_auto_test_status** – Auto test results for 3 suites + thread review status with improved formatting
-3. **get_blocking_issues** – Critical/blocking issue detection with JIRA ticket extraction
-4. **get_channel_history** – Read messages from any channel with user resolution
-5. **send_message** – Post messages (restricted to qa-release-status only)
-6. **list_channels** – List workspace channels
-7. **search_messages** – Search across workspace
-8. **add_reaction** – Add emoji reactions
-9. **get_thread_replies** – Read thread discussions
-10. **get_message_details** – Fetch full message including blocks/attachments
-11. **find_bot_messages** – Inspect bot messages and extracted text for debugging
-
-## Architecture Notes (Auto Test Analysis)
-
-- **Bot Detection**: Simplified and optimized bot detection using strict TEST_BOT_IDS mapping. No longer uses fuzzy username/text heuristics, improving speed and reducing false positives.
-- **Thread Analysis**: Extracted to `services/thread-analyzer.ts` (ThreadAnalyzerService) which reads thread replies and produces structured results: failedTests[], statusNote, perTestStatus mapping and summary.
-- **Report Formatting**: Handled by `services/test-report-formatter.ts` (TestReportFormatter). Renders Slack-friendly output with improved formatting:
-  - ✅ All tests passed (for successful tests)
-  - Clear multi-line formatting with proper spacing
-  - Detailed failure information with review status
-- **Main Orchestration**: `services/test-analyzer.ts` coordinates: finding bot messages, determining pass/fail status, requesting review context from ThreadAnalyzerService, and delegating formatting to TestReportFormatter.
-- **Issue Detection**: `services/issue-detector.ts` handles blocking/critical issue detection and is used by the ReleaseAnalyzer.
-- **ESM Compatibility**: Full ES modules support with clean imports and no CommonJS dependencies for better performance and compatibility.
-
 ### MCP Configuration
-
-Add to your MCP settings (e.g., Claude Desktop):
 
 ```json
 {
-  "slack-release": {
+  "slack": {
     "command": "node",
-    "args": ["/path/to/slack-mcp-server/dist/server.js"],
+    "args": ["/path/to/mcp-servers/slack/dist/server.js"],
     "env": {
-      "SLACK_XOXC_TOKEN": "xoxc-your-token",
-      "SLACK_XOXD_TOKEN": "xoxd-your-token"
+      "SLACK_MCP_XOXC_TOKEN": "xoxc-...",
+      "SLACK_MCP_XOXD_TOKEN": "xoxd-..."
     }
   }
 }
 ```
 
-## Release Management Workflow
-
-### Daily Release Check
-
-1. **Analyze functional testing**: Check latest messages for test results
-2. **Review auto tests**: Verify all automated tests have passed
-3. **Scan for blockers**: Look for critical or blocking issues
-4. **Generate status**: Create comprehensive release readiness report
-5. **Post to qa-release-status**: Share decision with team
-
-### Example Usage
+### CLI Testing
 
 ```bash
-# Get release status
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_release_status_overview", "arguments": {"channel": "functional-testing"}}}' | node dist/server.js
+# Load env and test
+export $(grep -v '^#' .env | grep -v '^$' | xargs)
 
-# Post status (only to qa-release-status)
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "send_message", "arguments": {"channel": "qa-release-status", "text": "🟢 Release approved - all tests passing"}}}' | node dist/server.js
+# List tools
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node dist/server.js 2>/dev/null | jq '.result.tools[].name'
+
+# Get auto test status
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_auto_test_status","arguments":{"date":"today"}}}' | node dist/server.js 2>/dev/null
+
+# Get blocking issues
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_blocking_issues","arguments":{}}}' | node dist/server.js 2>/dev/null
+```
+
+### Performance Tips
+
+Use channel IDs for better performance:
+```javascript
+// Slow: requires API lookup
+channel: "#qa-release-status"
+
+// Fast: direct lookup
+channel: "C09BW9Y2HSN"
 ```
 
 ## Troubleshooting
 
-### Authentication Issues
+| Error | Fix |
+|-------|-----|
+| `invalid_auth` | Token expired, extract new XOXC/XOXD |
+| `missing_scope` | User lacks permissions |
+| `channel_not_found` | User doesn't have access to channel |
+| `Write access restricted` | Can only post to #qa-release-status |
+| `Cannot find module` | Run `npm run build` |
 
-- **"invalid_auth" error**: Token expired, extract new XOXC/XOXD
-- **"missing_scope" error**: User lacks permissions for requested action
-- **Network errors**: Check if Slack is accessible
+### VSCode MCP Caching
 
-### Token Extraction Problems
-
-- **Can't find d cookie**: Clear browser cache and try again
-- **XOXC not in headers**: Make sure you're logged in and making API requests
-- **Tokens don't work**: Verify workspace and token format
-
-### Channel Access Issues
-
-- **"channel_not_found"**: User doesn't have access to channel
-- **"Write access restricted"**: Trying to post to unauthorized channel
-- **"is_archived"**: Channel has been archived
+After rebuilding (`npm run build`), VSCode caches the old server. Restart VSCode (Cmd+Shift+P → "Reload Window") or test via CLI.
 
 ## Development
 
-### Project Structure
-
-```
-src/
-├── server.ts                # MCP server wiring and tool registry
-├── auth/
-│   └── slack-auth.ts        # XOXC/XOXD session auth bootstrap (SlackAuth)
-├── clients/
-│   ├── slack-client.ts      # WebClient wrapper (history, replies, search, permalink)
-│   └── ollama-client.ts     # Shared LLM client (Ollama/Qwen3) for classifiers
-├── handlers/
-│   ├── messaging.ts         # Tools: send, list, history, search, reactions, get details
-│   └── analysis.ts          # Tools: get_auto_test_status, get_blocking_issues, overview
-├── services/
-│   ├── issue-detector.ts    # Blocking/critical issue detection (pipeline orchestrator)
-│   ├── release-analyzer.ts  # Orchestrates test + issues into release overview
-│   ├── test-analyzer.ts     # Auto test analysis (Cypress/Playwright) + threads
-│   ├── thread-analyzer.ts   # Dedicated thread analysis and review status detection
-│   ├── llm-test-classifier.service.ts  # LLM-based test status classification
-│   ├── test-report-formatter.ts # Test result formatting with improved output styling
-│   └── issue-detection/     # Modular issue detection pipeline
-│       ├── services/        # Specialized services (pattern, context, deduplication, LLM)
-│       └── models/          # Type definitions and interfaces
-├── utils/
-│   ├── analyzers.ts         # Text analysis helpers (uses central patterns)
-│   ├── patterns.ts          # Central pattern registry (blockers, critical, hotfix, etc.)
-│   ├── date-utils.ts        # Date handling (getTestSearchWindows, addDays, etc.)
-│   ├── message-extractor.ts # Blocks/attachments extraction and parsing
-│   └── resolvers.ts         # Channel/user resolve utilities
-└── types/
-    └── index.ts             # Shared types (SlackMessage, TestResult, etc.)
-```
-
-### Key Architecture Notes
-
-- **LLM Classification is PRIMARY**: Pattern recognition (regex) serves as fallback when Ollama unavailable
-- **Central Pattern Registry**: All blocking/critical patterns defined in `utils/patterns.ts`
-- **Shared OllamaClient**: Single LLM client in `clients/ollama-client.ts` used by both classifiers
-- **DateUtils Extensions**: Includes `getTestSearchWindows()` for phased lookback with Monday logic
-
-### Auto Test Analysis Contract
-
-- Suites reported every time:
-  - Cypress (general) – bot_id: B067SLP8AR5
-  - Cypress (unverified) – bot_id: B067SMD5MAT
-  - Playwright (Jenkins) – bot_id: B052372DK4H (fallback by username/text if missing)
-- Time window logic:
-  - Monday: fetch Fri→Sun (inclusive); otherwise: previous day
-  - Uses inclusive history to avoid boundary misses; per-suite latest is selected within the window
-- Parsing and detection:
-  - Blocks and attachments text are extracted and parsed
-  - Playwright marked passed when “Success/PASSED/🟢/green” is present
-  - Threads analyzed for: rerun success, not blocking, still failing, PR opened, revert
-- Output always shows all three suites with status and a Slack permalink to the parent message
-
-### Debugging
-
-- Auto test runs append a debug log under /tmp (e.g., /tmp/slack-debug-<ts>.log) with:
-  - Date range used, relevant message counts, selected messages
-  - Extracted text snippets and parsed fields
-  - Thread analysis outcomes
-
-### Building
-
 ```bash
 npm run build    # Compile TypeScript
-npm run dev      # Development mode with watching
+npm run dev      # Development with watching
+npm test         # Run tests
 ```
 
-### Testing
-
-```bash
-# Test authentication
-node dist/server.js <<< '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_channels", "arguments": {}}}'
-
-# Test release analysis
-node dist/server.js <<< '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_release_status_overview", "arguments": {"channel": "functional-testing"}}}'
-```
-
-## License
-
-Internal use only - Not for public distribution
+For architecture details, file structure, and modification guides, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
