@@ -53,29 +53,6 @@ export class LLMClassifierService {
   }
 
   /**
-   * Batch classify multiple messages for efficiency
-   */
-  async classifyMessages(
-    messages: Array<{ message: SlackMessage; threadContext: SlackMessage[] }>
-  ): Promise<ClassificationResult[]> {
-    // Process in parallel with concurrency limit
-    const results: ClassificationResult[] = [];
-    const concurrency = 3;
-
-    for (let i = 0; i < messages.length; i += concurrency) {
-      const batch = messages.slice(i, i + concurrency);
-      const batchResults = await Promise.all(
-        batch.map(({ message, threadContext }) =>
-          this.classifyMessage(message, threadContext)
-        )
-      );
-      results.push(...batchResults);
-    }
-
-    return results;
-  }
-
-  /**
    * Build the classification prompt
    */
   private buildPrompt(message: SlackMessage, threadContext: SlackMessage[]): string {

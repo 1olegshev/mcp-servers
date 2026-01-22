@@ -238,14 +238,6 @@ export class TestAnalyzerService {
     return testResults;
   }
 
-  /**
-   * Improved bot detection specifically for test automation
-   */
-  private isRelevantTestBot(message: SlackMessage): boolean {
-    // Simplified: rely solely on known test bot IDs
-    return !!message.bot_id && TEST_BOT_IDS.includes(message.bot_id);
-  }
-
   formatTestStatusReport(testResults: TestResult[], date?: string): string {
     return this.formatter.format(testResults, (t: TestResult) => this.getTestTypeFromMessage(t), date);
   }

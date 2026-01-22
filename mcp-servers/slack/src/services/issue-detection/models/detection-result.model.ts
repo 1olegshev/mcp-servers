@@ -11,18 +11,3 @@ export interface DetectionResult {
   processingTime: number;
   errors?: string[];
 }
-
-export interface ThreadAnalysisResult {
-  ticketKey: string;
-  isBlocking: boolean;
-  isResolved: boolean;
-  contextText: string;
-  resolutionText?: string;
-}
-
-export interface BlockingAnalysis {
-  isBlocking: boolean;
-  isResolved: boolean;
-  confidence: number; // 0-1 scale
-  reasoning: string[];
-}
