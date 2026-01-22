@@ -87,15 +87,18 @@ const windows = DateUtils.getTestSearchWindows('2026-01-15', 7);
 
 // Text analysis
 import { TextAnalyzer } from '../utils/analyzers.js';
-const tickets = TextAnalyzer.extractTickets(text);
-const { isBlocking, isCritical } = TextAnalyzer.analyzeIssueSeverity(text);
+const tickets = TextAnalyzer.extractTickets(text, jiraBaseUrl);
 const isHotfix = TextAnalyzer.isHotfixContext(text);
 const isUIBlock = TextAnalyzer.hasUIBlockContext(text);
 
 // Patterns
-import { BLOCKING_PATTERNS, CRITICAL_PATTERNS, RESOLUTION_PATTERNS } from '../utils/patterns.js';
+import { BLOCKING_PATTERNS, CRITICAL_PATTERNS, RESOLUTION_PATTERNS, JIRA_TICKET_PATTERN } from '../utils/patterns.js';
 const hasBlocking = BLOCKING_PATTERNS.explicit.some(p => p.test(text));
 const isResolved = RESOLUTION_PATTERNS.some(p => p.pattern.test(text));
+// Extract all JIRA tickets (reset lastIndex for global regex)
+JIRA_TICKET_PATTERN.lastIndex = 0;
+let match;
+while ((match = JIRA_TICKET_PATTERN.exec(text)) !== null) { /* match[1] is ticket key */ }
 
 // Auth
 import { SlackAuth } from '../auth/slack-auth.js';

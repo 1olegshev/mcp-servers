@@ -1,4 +1,3 @@
-import fs from 'fs';
 /**
  * Slack Message Text Extraction Utilities
  * Based on slack_mcp_github approach to handle Block Kit and attachments
@@ -303,12 +302,6 @@ export function parseTestResultsFromText(text: string): {
     }
   }
 
-  // Optional debug: ambiguous pass case where 'failed' word appears but Failed: 0
-  if (result.status === 'passed' && /failed/i.test(processed) && failedCount === 0) {
-    try {
-      fs.appendFileSync('/Users/olegshevchenko/Sourses/MCP/mcp-servers/slack/slack-mcp-debug.log', `[${new Date().toISOString()}] DEBUG: Ambiguous pass resolved via Failed: 0\n`);
-    } catch {}
-  }
   
   // Extract failed test names (pattern: filename_spec.ts or similar)
   const testFilePattern = /([\w\-\/]+(?:_spec|\.spec|\.test|_test)\.[jt]sx?)/gi;

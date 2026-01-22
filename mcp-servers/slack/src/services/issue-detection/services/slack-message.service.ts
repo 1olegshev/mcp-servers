@@ -143,22 +143,4 @@ export class SlackMessageService implements ISlackMessageService {
 
     return undefined;
   }
-
-  /**
-   * Get messages for a specific date range
-   */
-  async getMessagesForDateRange(
-    channel: string,
-    oldest: string,
-    latest: string,
-    limit: number = 200
-  ): Promise<SlackMessage[]> {
-    const conversationId = await this.slackClient.resolveConversation(channel);
-    return await this.slackClient.getChannelHistoryForDateRange(
-      conversationId,
-      oldest,
-      latest,
-      limit
-    );
-  }
 }

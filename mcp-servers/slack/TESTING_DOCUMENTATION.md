@@ -5,7 +5,7 @@
 | Metric | Value |
 |--------|-------|
 | Framework | Jest + TypeScript (ESM) |
-| Tests | 69 passing |
+| Tests | 125 passing |
 | Coverage | Pattern matching, deduplication, pipeline, handlers |
 
 **Note:** These tests cover regex/pattern logic only. LLM classification (the critical path) is tested manually.
@@ -36,7 +36,7 @@ src/handlers/__tests__/
 | Suite | Tests | What it covers |
 |-------|-------|----------------|
 | BlockerPatternService | 18 | Blocker/critical keyword detection, JIRA extraction, resolution patterns |
-| SmartDeduplicatorService | 11 | Thread vs list priority, context merging, duplicate detection |
+| SmartDeduplicatorService | 5 | Thread vs list priority, deduplication logic |
 | IssueDetectionPipeline | 11 | End-to-end flow, error handling, partial failures |
 | AnalysisHandler | 13 | MCP tool params, response format, error handling |
 | Error Handling | 16 | API failures, malformed data, concurrency |

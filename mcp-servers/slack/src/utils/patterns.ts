@@ -3,6 +3,12 @@
  * Single source of truth - all services should import from here
  */
 
+/**
+ * JIRA ticket pattern - matches PROJECT-123 format
+ * Used for extracting ticket keys from text
+ */
+export const JIRA_TICKET_PATTERN = /\b([A-Z]+-\d+)\b/g;
+
 export const BLOCKING_PATTERNS = {
   explicit: [
     /\bblocker\b/i,

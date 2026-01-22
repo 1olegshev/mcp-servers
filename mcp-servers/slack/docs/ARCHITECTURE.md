@@ -249,7 +249,7 @@ pipeline.setLLMClassification(false);
 5. **Test Manager Decision**: Daily release/hotfix/postpone decision
 
 ### Issue Detection Patterns
-- **JIRA Tickets**: `/[A-Z]+-\d+/g`
+- **JIRA Tickets**: `JIRA_TICKET_PATTERN` from `patterns.ts`
 - **Implicit Blocking**: "prio: blocker" in thread replies
 - **Explicit Lists**: "Blockers: • TICKET-123"
 - **Resolution**: "resolved", "fixed", "deployed" keywords

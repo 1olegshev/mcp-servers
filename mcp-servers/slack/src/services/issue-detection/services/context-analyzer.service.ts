@@ -322,7 +322,7 @@ export class ContextAnalyzerService implements IContextAnalyzer {
    * Extract tickets from a single message
    */
   private extractTicketsFromMessage(message: SlackMessage): JiraTicketInfo[] {
-    const jiraBaseUrl = process.env.JIRA_BASE_URL || 'https://mobitroll.atlassian.net';
+    const jiraBaseUrl = process.env.JIRA_BASE_URL || '';
     return TextAnalyzer.extractTickets(message.text || '', jiraBaseUrl);
   }
 

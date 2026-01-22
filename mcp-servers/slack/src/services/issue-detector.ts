@@ -4,9 +4,8 @@
  */
 
 import { SlackClient } from '../clients/slack-client.js';
-import { TextAnalyzer } from '../utils/analyzers.js';
 import { DateUtils } from '../utils/date-utils.js';
-import { Issue, SlackMessage, JiraTicketInfo } from '../types/index.js';
+import { Issue } from '../types/index.js';
 
 // New modular services
 import { IssueDetectionPipeline } from './issue-detection/pipeline/issue-detection.pipeline.js';

@@ -96,13 +96,15 @@ export interface UserInfo {
 
 export interface TestManagerUpdate {
   found: boolean;
-  decision?: 'release' | 'start_hotfixing' | 'unknown';
+  decision?: 'release' | 'start_hotfixing' | 'postponed' | 'aborted' | 'unknown';
   decisionEvolved?: boolean;
+  isFriday?: boolean;
   manualTestingStatus?: 'done' | 'close_to_done' | 'in_progress' | 'unknown';
   autotestsStatus?: 'reviewed' | 'pending' | 'unknown';
   responsibleDev?: string;
   hotfixes?: string[];
   summary?: string;
+  postponementReason?: string;
   rawMessage?: string;
   timestamp?: string;
   permalink?: string;

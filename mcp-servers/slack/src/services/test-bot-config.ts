@@ -13,15 +13,3 @@ export const EARLY_MORNING_CUTOFF = 1; // 1:00 AM
 
 // Lookback range for finding tests
 export const MAX_LOOKBACK_DAYS = 7;
-
-// Test result patterns for detection (kept for future use)
-export const TEST_RESULT_PATTERNS = [
-  'run #\\d+',
-  'test results:',
-  'failed run',
-  'frontend-qa',
-  'kahoot-frontend-player-qa-playwright',
-  'failed.*test',
-  'passed.*test',
-  'specs for review',
-];

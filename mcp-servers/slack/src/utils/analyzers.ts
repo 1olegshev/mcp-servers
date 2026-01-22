@@ -3,40 +3,27 @@
  */
 
 import { SlackMessage, JiraTicketInfo } from '../types/index.js';
-import { CRITICAL_PATTERNS, HOTFIX_PATTERNS, UI_BLOCK_PATTERNS } from './patterns.js';
+import { HOTFIX_PATTERNS, UI_BLOCK_PATTERNS, JIRA_TICKET_PATTERN } from './patterns.js';
 
 export class TextAnalyzer {
-  
+
   /**
    * Extract JIRA ticket numbers from text and create ticket info objects
    */
   static extractTickets(text: string, jiraBaseUrl?: string): JiraTicketInfo[] {
-    const ticketPattern = /[A-Z]+-\d+/g;
-    const ticketKeys = text.match(ticketPattern) || [];
-    
+    // Reset lastIndex for global regex
+    JIRA_TICKET_PATTERN.lastIndex = 0;
+    const ticketKeys: string[] = [];
+    let match;
+    while ((match = JIRA_TICKET_PATTERN.exec(text)) !== null) {
+      ticketKeys.push(match[1]);
+    }
+
     return ticketKeys.map(key => ({
       key,
       url: jiraBaseUrl ? `${jiraBaseUrl}/browse/${key}` : undefined,
       project: key.split('-')[0]
     }));
-  }
-
-  /**
-   * Analyze issue severity from text content
-   */
-  static analyzeIssueSeverity(text: string): { isBlocking: boolean; isCritical: boolean } {
-    const lower = (text || '').toLowerCase();
-
-    const blockingKeywords = ['blocker', 'blocking', 'release blocker', 'blocks release', 'block release', 'hotfix'];
-    const isBlocking = blockingKeywords.some(keyword => lower.includes(keyword));
-
-    // Negation-aware critical detection using centralized patterns
-    const criticalPositive = CRITICAL_PATTERNS.positive.some(pattern => pattern.test(lower));
-    const criticalNegative = CRITICAL_PATTERNS.negative.some(pattern => pattern.test(lower));
-    const windowNegation = CRITICAL_PATTERNS.windowNegation.test(lower);
-    const isCritical = criticalPositive && !criticalNegative && !windowNegation;
-
-    return { isBlocking, isCritical };
   }
 
   /**
@@ -91,39 +78,6 @@ export class TextAnalyzer {
     }
     
     return { testType, status };
-  }
-
-  /**
-   * Extract detailed test information from bot message
-   * Parses the actual format shown in screenshots
-   */
-  static parseTestDetails(text: string): {
-    failedCount: number;
-    passedCount: number;
-    failedTests: string[];
-    hasSpecs: boolean;
-  } {
-    const details = {
-      failedCount: 0,
-      passedCount: 0,
-      failedTests: [] as string[],
-      hasSpecs: false
-    };
-
-    // Extract counts (Failed: 5, Passed: 1173, etc.)
-    const failedMatch = text.match(/failed:\s*(\d+)/i);
-    const passedMatch = text.match(/passed:\s*(\d+)/i);
-    
-    if (failedMatch) details.failedCount = parseInt(failedMatch[1]);
-    if (passedMatch) details.passedCount = parseInt(passedMatch[1]);
-
-    // Extract specific test file names
-    const specPattern = /[\w\/-]+_spec\.ts|[\w\/-]+\.spec\.js|[\w\/-]+_test\.ts|[\w\/-]+\.test\.js/g;
-    const testFiles = text.match(specPattern) || [];
-    details.failedTests = testFiles;
-    details.hasSpecs = testFiles.length > 0;
-
-    return details;
   }
 
   /**

@@ -34,7 +34,7 @@ import { SlackClient } from '../clients/slack-client.js';
 import { OllamaClient } from '../clients/ollama-client.js';
 import { SlackMessage } from '../types/index.js';
 import { DateUtils } from '../utils/date-utils.js';
-import { TEST_MANAGER_UPDATE_PATTERNS } from '../utils/patterns.js';
+import { TEST_MANAGER_UPDATE_PATTERNS, JIRA_TICKET_PATTERN } from '../utils/patterns.js';
 
 export interface TestManagerUpdate {
   found: boolean;
@@ -62,7 +62,7 @@ export class TestManagerUpdateDetector {
 
   constructor(private slackClient: SlackClient) {
     this.ollamaClient = new OllamaClient();
-    this.jiraBaseUrl = process.env.JIRA_BASE_URL || 'https://mobitroll.atlassian.net';
+    this.jiraBaseUrl = process.env.JIRA_BASE_URL || '';
   }
 
   /**
@@ -442,10 +442,11 @@ Output JSON only:
    */
   private extractHotfixTickets(text: string): string[] {
     const tickets: string[] = [];
-    const ticketPattern = /\b([A-Z]+-\d+)\b/g;
+    // Reset lastIndex for global regex
+    JIRA_TICKET_PATTERN.lastIndex = 0;
     let match;
 
-    while ((match = ticketPattern.exec(text)) !== null) {
+    while ((match = JIRA_TICKET_PATTERN.exec(text)) !== null) {
       if (!tickets.includes(match[1])) {
         tickets.push(match[1]);
       }
