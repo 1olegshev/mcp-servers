@@ -168,10 +168,12 @@ CRITICAL RULES:
 12. CONTEXT: If there's only ONE failed test being discussed, any reply about pass/fail status applies to that test even if the test name isn't repeated. Example: Thread about "test-x.ts fails" → reply "passed locally, flaky" → test-x.ts is flakey.
 13. OVERRIDE RULE: If User A says "test-x fails locally" and User B LATER says "test-x passing locally" or "test-x passes locally for me" → the test is FLAKEY, not needs_attention. The LATER message supersedes the earlier one. This is environment-specific behavior.
 
-IMPORTANT: You MUST return a classification for EVERY test listed above. If there are 3 tests, return 3 objects in the array.
+IMPORTANT: You MUST return a classification for EVERY test listed above. If there are 4 tests, return 4 objects in the array.
+
+CRITICAL: Match test names EXACTLY from the list above. Do NOT use numeric IDs - use the actual test name to avoid confusion with message order.
 
 Output ONLY valid JSON (no markdown, no explanation):
-{"tests":[{"id":1,"status":"flakey","confidence":90,"reason":"passes locally"},{"id":2,"status":"fix_in_progress","confidence":85,"reason":"user said will fix"}]}`;
+{"tests":[{"id":"test_name_here","status":"flakey","confidence":90,"reason":"passes locally"},{"id":"another_test","status":"fix_in_progress","confidence":85,"reason":"user said will fix"}]}`;
   }
 
   /**
