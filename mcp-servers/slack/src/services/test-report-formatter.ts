@@ -37,7 +37,7 @@ export class TestReportFormatter {
             (test.failedTests && test.failedTests.length > 0)
               ? test.failedTests
               : this.parseFailedTestsFromSummary(test.reviewSummary)
-          ).slice(0, 6);
+          ); // Show all failed tests (LLM now handles 14+ tests)
           
           for (const testName of failedTests) {
             let display = testName
