@@ -157,8 +157,8 @@ export class DateUtils {
 
     // Daily cutoff: tests after 16:00 CET (15:00 UTC) are for the NEXT day's release
     // This applies to ALL days, not just Fridays
-    const dailyCutoff = new Date(startOfToday);
-    dailyCutoff.setUTCHours(15, 0, 0, 0); // 16:00 CET = 15:00 UTC (winter time)
+    // Use explicit ISO string to avoid timezone issues with local midnight
+    const dailyCutoff = new Date(todayDateStr + 'T15:00:00Z'); // 16:00 CET = 15:00 UTC (winter time)
     const dailyCutoffTs = dailyCutoff.getTime();
 
     // Friday cutoff is the same as daily cutoff but named separately for clarity

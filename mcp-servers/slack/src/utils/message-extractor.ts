@@ -203,14 +203,8 @@ export function isBotMessage(message: SlackMessage): boolean {
     return true;
   }
   
-  // Check if user looks like a bot user ID (known bot patterns)
-  if (message.user && (
-    message.user.startsWith('U067') || // Cypress bot pattern
-    message.user === 'U06K7JLHL03' ||  // Known Jenkins bot
-    message.user === 'U020H4HR8HM'     // Another known bot
-  )) {
-    return true;
-  }
+  // Note: Don't rely on user ID patterns - they're unreliable
+  // Bot detection should only use bot_id and subtype fields
   
   // Check username for bot patterns
   if ((message as any).username) {
