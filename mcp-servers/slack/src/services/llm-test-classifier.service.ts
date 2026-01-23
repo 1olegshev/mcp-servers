@@ -180,8 +180,8 @@ Output ONLY valid JSON (no markdown, no explanation):
   private async callOllama(prompt: string): Promise<string> {
     return this.ollamaClient.generate(prompt, {
       temperature: 0.3,
-      num_predict: 512,
-      timeout: 30000
+      num_predict: 2048,  // Increased for large test lists (14+ tests)
+      timeout: 60000
     });
   }
 
@@ -227,10 +227,16 @@ Output ONLY valid JSON (no markdown, no explanation):
 
       if (testsArray) {
         for (const test of testsArray) {
-          // Support both id (1-indexed number) and name (string) formats
+          // Support multiple formats LLMs may use:
+          // 1. id as 1-indexed number
+          // 2. id as string (test name) - common LLM behavior
+          // 3. name as string
           let testName: string | null = null;
           if (typeof test.id === 'number' && test.id >= 1 && test.id <= failedTests.length) {
             testName = failedTests[test.id - 1]; // Convert 1-indexed to 0-indexed
+          } else if (typeof test.id === 'string') {
+            // LLM used test name as id (common behavior)
+            testName = this.matchTestName(test.id, failedTests);
           } else if (test.name) {
             testName = this.matchTestName(test.name, failedTests);
           }
