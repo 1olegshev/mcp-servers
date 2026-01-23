@@ -55,6 +55,7 @@ export interface JiraTicketInfo {
   key: string;                    // e.g., "PROJ-123"
   url?: string;                   // Full URL to ticket
   project?: string;               // Project key
+  title?: string;                 // Issue summary/title
   labels?: string[];              // Issue labels
   components?: string[];          // Issue components
   status?: string;                // Current status

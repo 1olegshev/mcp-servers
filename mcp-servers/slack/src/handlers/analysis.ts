@@ -31,6 +31,8 @@ export class AnalysisHandler extends BaseHandler {
 
     try {
       const issues = await this.issueDetector.findIssues(channel, args.date!, severity);
+      // Enrich blocking issues with Jira titles
+      await this.issueDetector.enrichIssuesWithJiraTitles(issues);
       const report = this.issueDetector.formatIssuesReport(issues, args.date!, channel);
 
       return this.formatResponse(report);

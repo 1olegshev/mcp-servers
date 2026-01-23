@@ -77,6 +77,77 @@ export class IssueDetectorService {
   }
 
   /**
+   * Enrich issues with Jira ticket titles
+   */
+  async enrichIssuesWithJiraTitles(issues: Issue[]): Promise<Issue[]> {
+    // Collect all unique ticket keys
+    const ticketKeys = new Set<string>();
+    for (const issue of issues) {
+      for (const ticket of issue.tickets) {
+        ticketKeys.add(ticket.key);
+      }
+    }
+
+    // Fetch titles for all tickets
+    const titleMap = new Map<string, string>();
+    await Promise.all(
+      Array.from(ticketKeys).map(async (key) => {
+        const title = await this.fetchJiraTitle(key);
+        if (title) {
+          titleMap.set(key, title);
+        }
+      })
+    );
+
+    // Update tickets with titles
+    for (const issue of issues) {
+      for (const ticket of issue.tickets) {
+        const title = titleMap.get(ticket.key);
+        if (title) {
+          ticket.title = title;
+        }
+      }
+    }
+
+    return issues;
+  }
+
+  /**
+   * Fetch a single Jira issue title via REST API
+   */
+  private async fetchJiraTitle(ticketKey: string): Promise<string | null> {
+    const baseUrl = process.env.JIRA_BASE_URL;
+    const email = process.env.JIRA_EMAIL;
+    const apiToken = process.env.JIRA_API_TOKEN;
+
+    if (!baseUrl || !email || !apiToken) {
+      return null;
+    }
+
+    try {
+      const auth = Buffer.from(`${email}:${apiToken}`).toString('base64');
+      const response = await fetch(
+        `${baseUrl}/rest/api/3/issue/${ticketKey}?fields=summary`,
+        {
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json() as { fields?: { summary?: string } };
+      return data.fields?.summary || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Format issues into a readable report
    */
   formatIssuesReport(issues: Issue[], date?: string, channel = 'functional-testing'): string {
@@ -101,15 +172,24 @@ export class IssueDetectorService {
       output += `Issues that block release deployment\n\n`;
 
       blockingIssues.forEach((issue, i) => {
-        output += `*${i + 1}. Blocker*`;
-
         const uniq = new Map(issue.tickets.map(t => [t.key, t]));
-        const ticketLinks = Array.from(uniq.values()).map(ticket => {
+        const tickets = Array.from(uniq.values());
+
+        // Format: number. TICKET-ID • title • thread link
+        output += `*${i + 1}.* `;
+
+        const ticketLinks = tickets.map(ticket => {
           return ticket.url ? `<${ticket.url}|${ticket.key}>` : ticket.key;
         });
 
         if (ticketLinks.length > 0) {
-          output += ` • ${ticketLinks.join(', ')}`;
+          output += ticketLinks.join(', ');
+        }
+
+        // Add title after ticket ID
+        const primaryTicket = tickets[0];
+        if (primaryTicket?.title) {
+          output += ` • ${primaryTicket.title}`;
         }
 
         if (issue.permalink) {
