@@ -63,8 +63,8 @@ fi
 echo "$(date): Starting cron release status job (PID: $$, User: $(whoami))" >> logs/cron-auto-release.log
 echo "$(date): System wake status: $(pmset -g | grep 'System-wide power settings')" >> logs/cron-auto-release.log
 
-# Try to prevent system sleep during execution
-caffeinate -i -t 300 &  # Prevent idle sleep for 5 minutes
+# Try to prevent system sleep during execution (increased for model pre-warming)
+caffeinate -i -t 600 &  # Prevent idle sleep for 10 minutes
 CAFFEINATE_PID=$!
 
 # Verify Node.js is available
@@ -75,6 +75,7 @@ fi
 
 # Start Ollama for LLM-based blocker classification (if available)
 OLLAMA_STARTED=false
+OLLAMA_MODEL="qwen3:30b-a3b-instruct-2507-q4_K_M"
 if command -v ollama >/dev/null 2>&1; then
     # Check if Ollama is already running
     if ! pgrep -x "ollama" >/dev/null 2>&1; then
@@ -83,16 +84,31 @@ if command -v ollama >/dev/null 2>&1; then
         OLLAMA_PID=$!
         OLLAMA_STARTED=true
 
-        # Wait for Ollama to be ready (max 30 seconds)
+        # Wait for Ollama server to be ready (max 30 seconds)
         for i in {1..30}; do
             if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-                echo "$(date): Ollama ready after ${i}s" >> logs/cron-auto-release.log
+                echo "$(date): Ollama server ready after ${i}s" >> logs/cron-auto-release.log
                 break
             fi
             sleep 1
         done
     else
         echo "$(date): Ollama already running" >> logs/cron-auto-release.log
+    fi
+
+    # Pre-warm the model by sending a simple prompt (prevents cold-start timeout)
+    # This loads the 30B model into memory before the actual report runs
+    echo "$(date): Pre-warming LLM model (this loads it into memory)..." >> logs/cron-auto-release.log
+    WARMUP_START=$(date +%s)
+    WARMUP_RESPONSE=$(curl -s --max-time 120 http://localhost:11434/api/generate \
+        -d "{\"model\": \"$OLLAMA_MODEL\", \"prompt\": \"Reply with just: ready\", \"stream\": false}" 2>&1)
+    WARMUP_END=$(date +%s)
+    WARMUP_DURATION=$((WARMUP_END - WARMUP_START))
+
+    if echo "$WARMUP_RESPONSE" | grep -q '"response"'; then
+        echo "$(date): Model pre-warmed successfully in ${WARMUP_DURATION}s" >> logs/cron-auto-release.log
+    else
+        echo "$(date): Model pre-warm failed after ${WARMUP_DURATION}s (will use regex fallback): $WARMUP_RESPONSE" >> logs/cron-auto-release.log
     fi
 else
     echo "$(date): Ollama not installed, using regex-only detection" >> logs/cron-auto-release.log

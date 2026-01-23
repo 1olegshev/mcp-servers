@@ -111,16 +111,17 @@ export const TEST_MANAGER_UPDATE_PATTERNS = {
   // Primary identifiers - must match for a message to be considered a TM update
   // Matches both "Frontend release update" and "Frontend release pipeline aborted"
   // Also handles "Front end" (with space) variant
-  header: /front\s*end\s+release\s+(?:update|pipeline\s+aborted)/i,
+  // Note: "release" is optional in "pipeline aborted" messages (e.g., "frontend pipeline aborted, Friday")
+  header: /front\s*end\s+(?:release\s+)?(?:update|pipeline\s+aborted)/i,
 
   // Specific header for normal release update
   headerUpdate: /front\s*end\s+release\s+update/i,
 
-  // Specific header for Friday (pipeline aborted)
-  headerAborted: /front\s*end\s+release\s+pipeline\s+aborted/i,
+  // Specific header for Friday (pipeline aborted) - "release" is optional
+  headerAborted: /front\s*end\s+(?:release\s+)?pipeline\s+aborted/i,
 
-  // Friday indicator - often mentions it's Friday
-  fridayIndicator: /it['']?s\s+friday/i,
+  // Friday indicator - matches "it's Friday", "Friday" after comma/aborted, or standalone
+  fridayIndicator: /(?:it['']?s\s+friday|,\s*friday\b|\baborted[,.]?\s*friday\b)/i,
 
   // Decision patterns (expanded to catch variations)
   canRelease: /we\s+(?:can|are\s+good\s+to)\s+release/i,
