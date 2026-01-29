@@ -88,6 +88,7 @@ export class OllamaClient {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const startTime = Date.now();
 
     try {
       const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -112,6 +113,8 @@ export class OllamaClient {
       }
 
       const data = await response.json() as OllamaResponse;
+      const duration = Date.now() - startTime;
+      console.error(`[Ollama] generate completed in ${duration}ms (prompt: ${prompt.length} chars)`);
 
       // Qwen3 puts thinking in separate field, actual output in response
       if (data.response && data.response.trim()) {
@@ -119,6 +122,8 @@ export class OllamaClient {
       }
       return data.thinking || '';
     } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`[Ollama] generate failed after ${duration}ms: ${error}`);
       clearTimeout(timeoutId);
       throw error;
     }

@@ -29,6 +29,9 @@ export class TestAnalyzerService {
     date?: string,
     messages?: SlackMessage[]
   ): Promise<TestResult[]> {
+    const analysisStartTime = Date.now();
+    console.error(`[TestAnalyzer] Starting analysis for date=${date || 'today'}`);
+
     // Use DateUtils for date window calculations
     const { startOfToday, todayDateStr, beforeDateStr, phase1Dates, phase2After, fridayCutoffTs, dailyCutoffTs } =
       DateUtils.getTestSearchWindows(date, MAX_LOOKBACK_DAYS);
@@ -242,6 +245,8 @@ export class TestAnalyzerService {
       });
     }
 
+    const totalDuration = Date.now() - analysisStartTime;
+    console.error(`[TestAnalyzer] Analysis completed in ${totalDuration}ms (${testResults.length} results)`);
     return testResults;
   }
 

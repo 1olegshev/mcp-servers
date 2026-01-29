@@ -143,9 +143,9 @@ ${threadContent}
 
 STATUS OPTIONS (use exactly these values):
 - resolved: Test passed on rerun, someone confirmed it's fixed, or root cause identified and test passes when run correctly ("I fixed it", "passing now", "fix merged", "it did pass", "now it passes", "works when run with")
-- not_blocking: Explicitly stated as not blocking release, or it's a test problem not a product bug ("not blocking", "isn't blocking", "behind a feature flag", "not a release blocker", "no issue", "not an issue", "test problem", "test bug", "forgot to update", "test data change", "not a regression", "data change")
+- not_blocking: Explicitly stated as not blocking release, or it's a test problem not a product bug ("not blocking", "isn't blocking", "behind a feature flag", "not a release blocker", "no issue", "not an issue", "test problem", "test bug", "forgot to update", "test data change", "not a regression", "data change", "can't reproduce manually", "can't reproduce this manually", "works manually", "only happens in cypress", "only in cypress", "cypress-specific")
 - blocker: Explicitly stated as blocking release ("release blocker", "this is blocking", "blocker for release", "blocks the release")
-- fix_in_progress: Someone is actively fixing, or it's being handled ("I'll fix", "I'll try to fix", "working on fix", "work in progress", "work in progress by [name]", "WIP", "[name] is working on it", "handled by [name]", "I have fixed them", "will check", "need to update", "seems like a test issue")
+- fix_in_progress: Someone is actively fixing, or it's being handled ("I'll fix", "I'll try to fix", "working on fix", "work in progress", "work in progress by [name]", "WIP", "[name] is working on it", "handled by [name]", "I have fixed them", "will check", "need to update", "seems like a test issue", "I can check later", "will check later", "passes if [action] manually", "works if done manually")
 - flakey: Passes locally but fails in CI - environment-specific, NOT a real bug ("passed locally", "passes locally", "passing locally", "passed locally for me", "passes locally for me", "passed after rerun", "works for me locally", "can be stabilised", "flaky")
 - needs_attention: Confirmed failing locally - real bug that needs fixing ("failing locally")
 - investigating: Someone is looking into it ("I'll look", "checking", "will investigate", "I'll have a look")
@@ -167,6 +167,9 @@ CRITICAL RULES:
 11. CRITICAL: If one person says "fails locally" but a DIFFERENT person later says "passes locally" or "passing locally for me" → flakey (environment-specific - works for some people but not others)
 12. CONTEXT: If there's only ONE failed test being discussed, any reply about pass/fail status applies to that test even if the test name isn't repeated. Example: Thread about "test-x.ts fails" → reply "passed locally, flaky" → test-x.ts is flakey.
 13. OVERRIDE RULE: If User A says "test-x fails locally" and User B LATER says "test-x passing locally" or "test-x passes locally for me" → the test is FLAKEY, not needs_attention. The LATER message supersedes the earlier one. This is environment-specific behavior.
+14. TEST AUTOMATION ISSUE: If someone says "can't reproduce manually", "only happens in cypress", "works manually", or "passes if [done] manually" → this is a TEST PROBLEM not a product bug. Classify as not_blocking or fix_in_progress. The product is fine, only the test automation needs fixing.
+15. WILL CHECK LATER: If someone says "I can check later", "will check later today", or similar → classify as fix_in_progress (someone is assigned to look at it).
+16. GROUP REFERENCES: If someone says "both tests", "both failing tests", "all tests", or refers to multiple tests by category (e.g., "org management tests", "mission tests") → apply the status to ALL tests that match that group. Example: "both org management tests only happen in cypress" → apply not_blocking to ALL tests with "org" or "organisation" in the name.
 
 IMPORTANT: You MUST return a classification for EVERY test listed above. If there are 4 tests, return 4 objects in the array.
 
