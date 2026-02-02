@@ -14,6 +14,17 @@ export interface ClassificationResult {
   ticketKey?: string;
 }
 
+/** JSON schema for structured LLM output */
+const BLOCKER_CLASSIFICATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    isBlocker: { type: 'boolean' },
+    confidence: { type: 'number' },
+    reasoning: { type: 'string' }
+  },
+  required: ['isBlocker', 'confidence', 'reasoning']
+};
+
 export class LLMClassifierService {
   private ollamaClient: OllamaClient;
   private enabled: boolean;
@@ -91,31 +102,27 @@ Output JSON only:
   }
 
   /**
-   * Call Ollama API using shared client
+   * Call Ollama API using shared client with structured JSON output
    */
   private async callOllama(prompt: string): Promise<string> {
     return this.ollamaClient.generate(prompt, {
       temperature: 0.3,
       num_predict: 256,
-      timeout: 30000
+      timeout: 30000,
+      format: BLOCKER_CLASSIFICATION_SCHEMA
     });
   }
 
   /**
    * Parse the LLM response into a structured result
-   * Uses shared helpers for response cleaning and JSON extraction
+   * With structured output format, response is guaranteed to be valid JSON
    */
   private parseResponse(response: string, message: SlackMessage): ClassificationResult {
     try {
-      // Use shared helpers for response cleaning and JSON extraction
+      // With structured output, response should be valid JSON directly
+      // Still clean response for any thinking tokens that might appear
       const cleanResponse = OllamaClient.cleanResponse(response);
-      const jsonStr = OllamaClient.extractBalancedJSON(cleanResponse);
-
-      if (!jsonStr) {
-        throw new Error('No JSON found in response');
-      }
-
-      const parsed = JSON.parse(jsonStr);
+      const parsed = JSON.parse(cleanResponse);
 
       // Extract ticket key from message
       const ticketMatch = (message.text || '').match(/\b([A-Z]+-\d+)\b/);

@@ -23,6 +23,27 @@ export interface ThreadClassificationResult {
   usedLLM: boolean;
 }
 
+/** JSON schema for structured LLM output - test classification */
+const TEST_CLASSIFICATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    tests: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string' },
+          confidence: { type: 'number' },
+          reason: { type: 'string' }
+        },
+        required: ['id', 'status', 'confidence', 'reason']
+      }
+    }
+  },
+  required: ['tests']
+};
+
 export class LLMTestClassifierService {
   private ollamaClient: OllamaClient;
   private enabled: boolean;
@@ -180,13 +201,14 @@ Output ONLY valid JSON (no markdown, no explanation):
   }
 
   /**
-   * Call Ollama API using shared client
+   * Call Ollama API using shared client with structured JSON output
    */
   private async callOllama(prompt: string): Promise<string> {
     return this.ollamaClient.generate(prompt, {
       temperature: 0.3,
       num_predict: 2048,  // Increased for large test lists (14+ tests)
-      timeout: 60000
+      timeout: 60000,
+      format: TEST_CLASSIFICATION_SCHEMA
     });
   }
 
@@ -212,19 +234,15 @@ Output ONLY valid JSON (no markdown, no explanation):
 
   /**
    * Parse LLM response and extract test statuses
+   * With structured output format, response is guaranteed to be valid JSON
    */
   private parseResponse(response: string, failedTests: string[]): ThreadClassificationResult {
-    // Use shared helpers for response cleaning and JSON extraction
+    // With structured output, response should be valid JSON directly
+    // Still clean response for any thinking tokens that might appear
     const cleanResponse = OllamaClient.cleanResponse(response);
-    const jsonStr = OllamaClient.extractBalancedJSON(cleanResponse);
-
-    if (!jsonStr) {
-      console.error('No JSON found in LLM response. Raw response:', response.substring(0, 300));
-      return this.fallbackClassification(failedTests);
-    }
 
     try {
-      const parsed = JSON.parse(jsonStr);
+      const parsed = JSON.parse(cleanResponse);
       const perTestStatus: Record<string, TestStatusClassification> = {};
 
       // Handle both formats: {"tests": [...]} or just [...]

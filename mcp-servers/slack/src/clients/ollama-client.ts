@@ -7,6 +7,8 @@ export interface OllamaGenerateOptions {
   temperature?: number;
   num_predict?: number;
   timeout?: number;
+  /** JSON schema for structured output - ensures valid JSON response */
+  format?: Record<string, unknown>;
 }
 
 export interface OllamaResponse {
@@ -83,7 +85,8 @@ export class OllamaClient {
     const {
       temperature = 0.3,
       num_predict = 512,
-      timeout = 30000
+      timeout = 30000,
+      format
     } = options;
 
     const controller = new AbortController();
@@ -91,18 +94,25 @@ export class OllamaClient {
     const startTime = Date.now();
 
     try {
+      const requestBody: Record<string, unknown> = {
+        model: this.model,
+        prompt,
+        stream: false,
+        options: {
+          temperature,
+          num_predict
+        }
+      };
+
+      // Add structured output format if provided
+      if (format) {
+        requestBody.format = format;
+      }
+
       const response = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.model,
-          prompt,
-          stream: false,
-          options: {
-            temperature,
-            num_predict
-          }
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
 
