@@ -90,18 +90,21 @@ export class LLMTestClassifierService {
       const debugLLM = process.env.DEBUG_LLM === 'true';
 
       if (debugLLM) {
-        console.error('\n=== LLM CLASSIFIER DEBUG ===');
-        console.error('Failed tests:', failedTests);
-        console.error('Thread content being sent to LLM:');
-        console.error(prompt.split('Thread conversation')[1]?.split('STATUS OPTIONS')[0] || 'N/A');
+        const fs = await import('fs');
+        const logFile = '/tmp/llm-debug.log';
+        const threadContent = prompt.split('Thread conversation')[1]?.split('STATUS OPTIONS')[0] || 'N/A';
+        fs.appendFileSync(logFile, `\n=== LLM CLASSIFIER DEBUG ${new Date().toISOString()} ===\n`);
+        fs.appendFileSync(logFile, `Failed tests: ${JSON.stringify(failedTests)}\n`);
+        fs.appendFileSync(logFile, `Thread content:\n${threadContent}\n`);
       }
 
       const response = await this.callOllama(prompt);
 
       if (debugLLM) {
-        console.error('\nLLM RAW RESPONSE:');
-        console.error(response);
-        console.error('=== END LLM DEBUG ===\n');
+        const fs = await import('fs');
+        const logFile = '/tmp/llm-debug.log';
+        fs.appendFileSync(logFile, `\nLLM RAW RESPONSE:\n${response}\n`);
+        fs.appendFileSync(logFile, `=== END LLM DEBUG ===\n`);
       }
 
       return this.parseResponse(response, failedTests);
@@ -113,6 +116,48 @@ export class LLMTestClassifierService {
         usedLLM: false
       };
     }
+  }
+
+  /**
+   * Extract which users were tagged for which tests from a message
+   */
+  private extractTaggedUsers(text: string, failedTests: string[]): Map<string, string[]> {
+    const tagMap = new Map<string, string[]>();
+
+    // Split into lines and look for test + tag patterns
+    const lines = text.split(/[\n\r]+/);
+
+    for (const line of lines) {
+      // Find which test this line mentions
+      let matchedTest: string | null = null;
+      for (const test of failedTests) {
+        const testLower = test.toLowerCase();
+        const lineLower = line.toLowerCase();
+        if (lineLower.includes(testLower) ||
+            lineLower.includes(testLower.replace(/-/g, '_')) ||
+            lineLower.includes(testLower.replace(/_/g, '-'))) {
+          matchedTest = test;
+          break;
+        }
+      }
+
+      if (matchedTest) {
+        // Extract user tags: <@USERID>
+        const userTagMatches = line.match(/<@([A-Z0-9]+)>/g);
+        if (userTagMatches) {
+          for (const match of userTagMatches) {
+            const userId = match.replace(/<@|>/g, '');
+            const existing = tagMap.get(userId) || [];
+            if (!existing.includes(matchedTest)) {
+              existing.push(matchedTest);
+            }
+            tagMap.set(userId, existing);
+          }
+        }
+      }
+    }
+
+    return tagMap;
   }
 
   /**
@@ -132,6 +177,20 @@ export class LLMTestClassifierService {
       return parts.filter(Boolean).join(' ');
     };
 
+    // Extract tag mappings from all messages (especially triage message)
+    const allText = replies.map(r => collectText(r)).join('\n');
+    const taggedUsers = this.extractTaggedUsers(allText, failedTests);
+
+    // Build tag context section
+    let tagContext = '';
+    if (taggedUsers.size > 0) {
+      const tagLines: string[] = [];
+      for (const [userId, tests] of taggedUsers) {
+        tagLines.push(`- ${userId} was tagged for: ${tests.join(', ')}`);
+      }
+      tagContext = `\nTAGGED USER ASSIGNMENTS:\n${tagLines.join('\n')}\n`;
+    }
+
     // Include full thread content with user IDs preserved for tag matching
     // Mark resolution signals explicitly so LLM recognizes them
     const resolutionPattern = /\b(it\s+did\s+pass|now\s+it\s+pass|passes\s+now|works\s+now|it\s+pass(?:es)?|did\s+pass|pass(?:ed|es|ing)?\s+locally|passing\s+now|fixed|resolved|flaky|flakey)\b/i;
@@ -144,7 +203,10 @@ export class LLMTestClassifierService {
         const text = collectText(r);
         const hasResolution = resolutionPattern.test(text);
         const marker = hasResolution ? ' [RESOLUTION SIGNAL]' : '';
-        return `${prefix}${marker} ${text}`;
+        // Mark if this user was tagged for specific tests
+        const taggedFor = taggedUsers.get(userId);
+        const tagNote = taggedFor ? ` [ASSIGNED TO: ${taggedFor.join(', ')}]` : '';
+        return `${prefix}${marker}${tagNote} ${text}`;
       })
     ].join('\n\n');
 
@@ -158,8 +220,8 @@ Tests "still_failing" or "needs_attention" mean we should NOT release until addr
 
 Failed tests to classify:
 ${numberedTests}
-
-Thread conversation (messages marked [RESOLUTION SIGNAL] contain phrases indicating the issue was resolved):
+${tagContext}
+Thread conversation (messages marked [RESOLUTION SIGNAL] contain phrases indicating the issue was resolved, [ASSIGNED TO: test] means this user was tagged specifically for that test):
 ${threadContent}
 
 STATUS OPTIONS (use exactly these values):
@@ -179,7 +241,7 @@ CRITICAL RULES:
 2. "failing locally" → needs_attention (confirmed real bug!) - BUT check rules 8 and 10 first!
 3. "not blocking" or "behind a role/flag" → not_blocking (safe for release!)
 4. "I fixed it" or "I have fixed them for next run" → fix_in_progress
-5. If a user is tagged (cc @someone) for a test and that user replies, assume they're discussing that test
+5. **CRITICAL TAG RULE**: If a user is marked [ASSIGNED TO: test-name], their replies apply ONLY to that specific test. Do NOT apply their comments (like "not a blocker") to other tests they weren't tagged for. A reply from an assigned user is SCOPED to their assigned test(s) only.
 6. "same as last time" + ticket reference → tracked
 7. If test is NOT mentioned in any human reply → unclear
 8. MOST IMPORTANT - Find the LAST message that discusses pass/fail status. Ignore follow-up discussions about future work, refactoring, or suggestions - those are NOT relevant to release decision. The last STATUS UPDATE (pass/fail/fixed/still broken) determines the classification. Messages with [RESOLUTION SIGNAL] indicate a status update saying "it works now".
@@ -191,6 +253,7 @@ CRITICAL RULES:
 14. TEST AUTOMATION ISSUE: If someone says "can't reproduce manually", "only happens in cypress", "works manually", or "passes if [done] manually" → this is a TEST PROBLEM not a product bug. Classify as not_blocking or fix_in_progress. The product is fine, only the test automation needs fixing.
 15. WILL CHECK LATER: If someone says "I can check later", "will check later today", or similar → classify as fix_in_progress (someone is assigned to look at it).
 16. GROUP REFERENCES: If someone says "both tests", "both failing tests", "all tests", or refers to multiple tests by category (e.g., "org management tests", "mission tests") → apply the status to ALL tests that match that group. Example: "both org management tests only happen in cypress" → apply not_blocking to ALL tests with "org" or "organisation" in the name.
+17. **PASSING vs FAILING ISOLATION**: When a triage message lists some tests as "passing locally" and others as "failing locally", treat them as SEPARATE discussions. A reply about the failing test does NOT affect the passing tests. Tests marked "passing locally" should be classified as flakey unless explicitly mentioned otherwise.
 
 IMPORTANT: You MUST return a classification for EVERY test listed above. If there are 4 tests, return 4 objects in the array.
 

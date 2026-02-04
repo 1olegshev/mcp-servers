@@ -263,11 +263,22 @@ pipeline.setLLMClassification(false);
 ## Debugging
 
 ### Debug Logs
-Auto test runs write to `/tmp/slack-debug-<ts>.log`:
+
+**Auto test runs** write to `/tmp/slack-debug-<ts>.log`:
 - Date range used
 - Message counts
 - Selected messages
 - Thread analysis outcomes
+
+**LLM classification** (when `DEBUG_LLM=true`) writes to `/tmp/llm-debug.log`:
+- Failed tests being classified
+- Thread content with markers (`[RESOLUTION SIGNAL]`, `[ASSIGNED TO: test]`)
+- Raw LLM response with status and reasoning per test
+
+Enable via `.vscode/mcp.json`:
+```json
+"env": { "DEBUG_LLM": "true" }
+```
 
 ### Common Issues
 

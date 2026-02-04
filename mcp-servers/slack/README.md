@@ -138,21 +138,44 @@ After rebuilding (`npm run build`), VSCode caches the old server. Restart VSCode
 
 ### LLM Classification Debugging
 
-When auto test status classification seems incorrect, enable verbose logging:
+When auto test status classification seems incorrect, enable verbose logging.
 
+**Option 1: VSCode MCP Config** (recommended)
+
+Add `DEBUG_LLM` to `.vscode/mcp.json`:
+```json
+{
+  "servers": {
+    "slack": {
+      "command": "node",
+      "args": ["dist/server.js"],
+      "env": {
+        "DEBUG_LLM": "true"
+      }
+    }
+  }
+}
+```
+
+**Option 2: CLI**
 ```bash
 DEBUG_LLM=true node dist/server.js
 ```
 
-This shows:
+**Log output**: `/tmp/llm-debug.log`
+
+The log shows:
 - Failed tests being classified
-- Thread content sent to LLM (with `[RESOLUTION SIGNAL]` markers)
-- Raw LLM response
+- Thread content sent to LLM with markers:
+  - `[RESOLUTION SIGNAL]` - messages with "passed locally", "fixed", etc.
+  - `[ASSIGNED TO: test-name]` - replies from users tagged for specific tests
+- Raw LLM JSON response with status and reasoning per test
 
 **What to look for:**
 - Is the thread content complete? Check if relevant replies are included
-- Does `[RESOLUTION SIGNAL]` appear on messages with "passed locally", "fixed", etc.?
-- Is LLM returning correct JSON format? Should be `[{id:1, status:"...", ...}]`
+- Does `[RESOLUTION SIGNAL]` appear on resolution messages?
+- Does `[ASSIGNED TO: ...]` correctly scope user replies to their tagged tests?
+- Is LLM returning correct status per test? Check the `reason` field
 - Does LLM return a classification for every test? If not, check the prompt
 
 ## Development
