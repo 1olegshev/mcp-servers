@@ -33,6 +33,8 @@ export class SlackClient {
         channel: conversation,
         text,
         thread_ts: threadTs,
+        unfurl_links: false,
+        unfurl_media: false,
       });
     } catch (error: any) {
       throw new McpError(
