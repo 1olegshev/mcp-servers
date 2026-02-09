@@ -54,7 +54,7 @@ export class LLMTestClassifierService {
   }
 
   /**
-   * Check if Ollama is available and the model is loaded
+   * Check if LLM server is available and the model is loaded
    */
   async isAvailable(): Promise<boolean> {
     return this.llmClient.isAvailable();
@@ -87,25 +87,15 @@ export class LLMTestClassifierService {
 
     try {
       const prompt = this.buildPrompt(originalMessage, replies, failedTests);
-      const debugLLM = process.env.DEBUG_LLM === 'true';
 
-      if (debugLLM) {
-        const fs = await import('fs');
-        const logFile = '/tmp/llm-debug.log';
-        const threadContent = prompt.split('Thread conversation')[1]?.split('STATUS OPTIONS')[0] || 'N/A';
-        fs.appendFileSync(logFile, `\n=== LLM CLASSIFIER DEBUG ${new Date().toISOString()} ===\n`);
-        fs.appendFileSync(logFile, `Failed tests: ${JSON.stringify(failedTests)}\n`);
-        fs.appendFileSync(logFile, `Thread content:\n${threadContent}\n`);
-      }
+      await this.debugLog(`START: ${failedTests.length} tests to classify`);
+      await this.debugLog(`Failed tests: ${JSON.stringify(failedTests)}`);
+      const threadContent = prompt.split('Thread conversation')[1]?.split('STATUS OPTIONS')[0] || 'N/A';
+      await this.debugLog(`Thread content:\n${threadContent}`);
 
       const response = await this.callLLM(prompt);
 
-      if (debugLLM) {
-        const fs = await import('fs');
-        const logFile = '/tmp/llm-debug.log';
-        fs.appendFileSync(logFile, `\nLLM RAW RESPONSE:\n${response}\n`);
-        fs.appendFileSync(logFile, `=== END LLM DEBUG ===\n`);
-      }
+      await this.debugLog(`LLM RAW RESPONSE:\n${response}`);
 
       return this.parseResponse(response, failedTests);
     } catch (error) {
@@ -232,12 +222,12 @@ STATUS OPTIONS (use exactly these values):
 - flakey: Passes locally but fails in CI - environment-specific, NOT a real bug ("passed locally", "passes locally", "passing locally", "passed locally for me", "passes locally for me", "passed after rerun", "works for me locally", "can be stabilised", "flaky")
 - needs_attention: Confirmed failing locally - real bug that needs fixing ("failing locally")
 - investigating: Someone is looking into it ("I'll look", "checking", "will investigate", "I'll have a look")
-- tracked: Known issue with existing ticket ("there's a ticket", "open ticket", "same as last time", link to Jira/KAHOOT-)
+- tracked: Known issue with ticket created or referenced ("there's a ticket", "open ticket", "same as last time", "created a Bug", "created a ticket", "raised a ticket", "logged a bug", link to Jira/KAHOOT- ticket number)
 - still_failing: Confirmed still broken after fix attempts ("still failing", "same issue", "not fixed yet")
 - unclear: Test NOT mentioned in ANY reply - no one has commented on it yet
 
 CRITICAL RULES:
-1. "passed locally" or "passes locally" or "passing locally" or "passed after rerun" → flakey (environment-specific)
+1. "passed locally" or "passes locally" or "passing locally" or "passed after rerun" → flakey (environment-specific). IMPORTANT: "passes locally if [condition]" (e.g., "passes locally if manually choose to leave") is STILL flakey — the conditional qualifier does NOT change this classification.
 2. "failing locally" → needs_attention (confirmed real bug!) - BUT check rules 8 and 10 first!
 3. "not blocking" or "behind a role/flag" → not_blocking (safe for release!)
 4. "I fixed it" or "I have fixed them for next run" → fix_in_progress
@@ -254,6 +244,7 @@ CRITICAL RULES:
 15. WILL CHECK LATER: If someone says "I can check later", "will check later today", or similar → classify as fix_in_progress (someone is assigned to look at it).
 16. GROUP REFERENCES: If someone says "both tests", "both failing tests", "all tests", or refers to multiple tests by category (e.g., "org management tests", "mission tests") → apply the status to ALL tests that match that group. Example: "both org management tests only happen in cypress" → apply not_blocking to ALL tests with "org" or "organisation" in the name.
 17. **PASSING vs FAILING ISOLATION**: When a triage message lists some tests as "passing locally" and others as "failing locally", treat them as SEPARATE discussions. A reply about the failing test does NOT affect the passing tests. Tests marked "passing locally" should be classified as flakey unless explicitly mentioned otherwise.
+18. **BUG TICKET CREATED = tracked**: If someone says "created a Bug", "created a ticket", "raised a ticket" or mentions a KAHOOT-XXXXX ticket number for a test → classify as tracked (the issue is known and being handled via a ticket). This OVERRIDES flakey — if a test passes locally AND has a bug ticket created, it is tracked, not flakey.
 
 IMPORTANT: You MUST return a classification for EVERY test listed above. If there are 4 tests, return 4 objects in the array.
 
@@ -434,5 +425,16 @@ Output ONLY valid JSON (no markdown, no explanation):
    */
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
+  }
+
+  private async debugLog(msg: string): Promise<void> {
+    const line = `${new Date().toISOString()} [LLM-Test] ${msg}\n`;
+    if (process.env.NODE_ENV !== 'test') {
+      console.error(line);
+    }
+    try {
+      const fs = await import('fs');
+      fs.appendFileSync('/tmp/llm-debug.log', line);
+    } catch { /* ignore */ }
   }
 }
