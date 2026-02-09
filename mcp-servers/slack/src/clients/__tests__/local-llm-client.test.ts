@@ -112,13 +112,39 @@ That's my analysis.`;
     it('should reset the availability cache', async () => {
       const client = new LocalLLMClient();
       // Access private fields via any for testing
-      (client as any).availabilityChecked = true;
+      (client as any).lastCheckTime = Date.now();
       (client as any).isAvailableCache = true;
 
       client.resetAvailabilityCache();
 
-      expect((client as any).availabilityChecked).toBe(false);
+      expect((client as any).lastCheckTime).toBe(0);
       expect((client as any).isAvailableCache).toBe(false);
+    });
+  });
+
+  describe('TTL-based availability cache', () => {
+    it('should retry after failure TTL (30s)', () => {
+      const client = new LocalLLMClient();
+      // Simulate a failed check 31 seconds ago
+      (client as any).isAvailableCache = false;
+      (client as any).lastCheckTime = Date.now() - 31_000;
+
+      // Cache should be expired — next isAvailable() call will re-check
+      const ttl = (LocalLLMClient as any).FAILURE_TTL_MS;
+      const elapsed = Date.now() - (client as any).lastCheckTime;
+      expect(elapsed).toBeGreaterThan(ttl);
+    });
+
+    it('should keep success cached for 5 minutes', () => {
+      const client = new LocalLLMClient();
+      // Simulate a successful check 1 minute ago
+      (client as any).isAvailableCache = true;
+      (client as any).lastCheckTime = Date.now() - 60_000;
+
+      // Cache should still be valid
+      const ttl = (LocalLLMClient as any).SUCCESS_TTL_MS;
+      const elapsed = Date.now() - (client as any).lastCheckTime;
+      expect(elapsed).toBeLessThan(ttl);
     });
   });
 });

@@ -73,28 +73,11 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-# Start LM Studio server for LLM-based blocker classification (if available)
-LMS_STARTED=false
-if command -v lms >/dev/null 2>&1; then
-    # Check if LM Studio server is already running
-    if ! curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
-        echo "$(date): Starting LM Studio server for LLM classification..." >> logs/cron-auto-release.log
-        lms server start >> logs/lms-cron.log 2>&1
-        LMS_STARTED=true
+# Check LM Studio server health and pre-warm the model (LM Studio runs as always-on service)
+if curl -s --max-time 5 http://localhost:1234/v1/models | grep -q '"data"'; then
+    echo "$(date): LM Studio server is running" >> logs/cron-auto-release.log
 
-        # Wait for LM Studio server to be ready (max 30 seconds)
-        for i in {1..30}; do
-            if curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
-                echo "$(date): LM Studio server ready after ${i}s" >> logs/cron-auto-release.log
-                break
-            fi
-            sleep 1
-        done
-    else
-        echo "$(date): LM Studio server already running" >> logs/cron-auto-release.log
-    fi
-
-    # Pre-warm the model (loads it into memory before the actual report runs)
+    # Pre-warm the model (JIT loading means first request loads model into memory)
     echo "$(date): Pre-warming LLM model..." >> logs/cron-auto-release.log
     WARMUP_START=$(date +%s)
     WARMUP_RESPONSE=$(curl -s --max-time 120 http://localhost:1234/v1/chat/completions \
@@ -109,18 +92,12 @@ if command -v lms >/dev/null 2>&1; then
         echo "$(date): Model pre-warm failed after ${WARMUP_DURATION}s (will use regex fallback): $WARMUP_RESPONSE" >> logs/cron-auto-release.log
     fi
 else
-    echo "$(date): LM Studio CLI not installed, using regex-only detection" >> logs/cron-auto-release.log
+    echo "$(date): WARNING - LM Studio server not responding, will use regex fallback" >> logs/cron-auto-release.log
 fi
 
 # Run the Node.js script
 node scripts/release-status-auto.mjs >> logs/cron-auto-release.log 2>&1
 EXIT_CODE=$?
-
-# Stop LM Studio server if we started it (save resources when sleeping)
-if [ "$LMS_STARTED" = true ]; then
-    echo "$(date): Stopping LM Studio server" >> logs/cron-auto-release.log
-    lms server stop >> logs/lms-cron.log 2>&1
-fi
 
 # Log completion with exit code
 echo "$(date): Cron job completed with exit code $EXIT_CODE" >> logs/cron-auto-release.log

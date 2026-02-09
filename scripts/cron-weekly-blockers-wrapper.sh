@@ -33,40 +33,27 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-# Start LM Studio server for LLM-based classification (if available)
-LMS_STARTED=false
-if command -v lms >/dev/null 2>&1; then
-    # Check if LM Studio server is already running
-    if ! curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
-        echo "$(date): Starting LM Studio server for LLM classification..." >> logs/cron-weekly-blockers.log
-        lms server start >> logs/lms-cron.log 2>&1
+# Check LM Studio server health (LM Studio runs as always-on service)
+if curl -s --max-time 5 http://localhost:1234/v1/models | grep -q '"data"'; then
+    echo "$(date): LM Studio server is running" >> logs/cron-weekly-blockers.log
 
-        LMS_STARTED=true
-
-        # Wait for LM Studio to be ready (max 30 seconds)
-        for i in {1..30}; do
-            if curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
-                echo "$(date): LM Studio ready after ${i}s" >> logs/cron-weekly-blockers.log
-                break
-            fi
-            sleep 1
-        done
+    # Pre-warm the model (JIT loading means first request loads model into memory)
+    echo "$(date): Pre-warming LLM model..." >> logs/cron-weekly-blockers.log
+    WARMUP_RESPONSE=$(curl -s --max-time 120 http://localhost:1234/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"messages": [{"role": "user", "content": "Reply with just: ready"}], "max_tokens": 10, "stream": false}' 2>&1)
+    if echo "$WARMUP_RESPONSE" | grep -q '"choices"'; then
+        echo "$(date): Model pre-warmed successfully" >> logs/cron-weekly-blockers.log
     else
-        echo "$(date): LM Studio server already running" >> logs/cron-weekly-blockers.log
+        echo "$(date): Model pre-warm failed (will use regex fallback)" >> logs/cron-weekly-blockers.log
     fi
 else
-    echo "$(date): LM Studio CLI not installed, using regex-only detection" >> logs/cron-weekly-blockers.log
+    echo "$(date): WARNING - LM Studio server not responding, will use regex fallback" >> logs/cron-weekly-blockers.log
 fi
 
 # Run the Node.js script
 node scripts/weekly-blockers-auto.mjs >> logs/cron-weekly-blockers.log 2>&1
 EXIT_CODE=$?
-
-# Stop LM Studio server if we started it (save resources when sleeping)
-if [ "$LMS_STARTED" = true ]; then
-    echo "$(date): Stopping LM Studio server" >> logs/cron-weekly-blockers.log
-    lms server stop >> logs/lms-cron.log 2>&1
-fi
 
 # Log completion with exit code
 echo "$(date): Weekly blockers job completed with exit code $EXIT_CODE" >> logs/cron-weekly-blockers.log

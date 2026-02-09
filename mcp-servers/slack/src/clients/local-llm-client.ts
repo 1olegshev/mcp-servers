@@ -15,8 +15,12 @@ export interface LLMGenerateOptions {
 export class LocalLLMClient {
   private baseUrl: string;
   private model: string;
-  private availabilityChecked: boolean = false;
   private isAvailableCache: boolean = false;
+  private lastCheckTime: number = 0;
+
+  /** Cache success for 5 minutes, failure for 30 seconds */
+  private static readonly SUCCESS_TTL_MS = 5 * 60 * 1000;
+  private static readonly FAILURE_TTL_MS = 30 * 1000;
 
   constructor(
     baseUrl: string = 'http://localhost:1234',
@@ -27,10 +31,16 @@ export class LocalLLMClient {
   }
 
   /**
-   * Check if the LLM server is available and has a model loaded
+   * Check if the LLM server is available and has a model loaded.
+   * Uses TTL-based cache: 5min on success, 30s on failure.
    */
   async isAvailable(): Promise<boolean> {
-    if (this.availabilityChecked) {
+    const now = Date.now();
+    const ttl = this.isAvailableCache
+      ? LocalLLMClient.SUCCESS_TTL_MS
+      : LocalLLMClient.FAILURE_TTL_MS;
+
+    if (this.lastCheckTime > 0 && (now - this.lastCheckTime) < ttl) {
       return this.isAvailableCache;
     }
 
@@ -45,7 +55,7 @@ export class LocalLLMClient {
 
       if (!response.ok) {
         this.isAvailableCache = false;
-        this.availabilityChecked = true;
+        this.lastCheckTime = now;
         return false;
       }
 
@@ -54,20 +64,20 @@ export class LocalLLMClient {
       this.isAvailableCache = models.length > 0 && models.some((m: any) =>
         m.id === this.model || m.id.includes(this.model)
       );
-      this.availabilityChecked = true;
+      this.lastCheckTime = now;
       return this.isAvailableCache;
     } catch {
       this.isAvailableCache = false;
-      this.availabilityChecked = true;
+      this.lastCheckTime = now;
       return false;
     }
   }
 
   /**
-   * Reset availability cache (useful if server was started after initial check)
+   * Reset availability cache (forces immediate re-check on next call)
    */
   resetAvailabilityCache(): void {
-    this.availabilityChecked = false;
+    this.lastCheckTime = 0;
     this.isAvailableCache = false;
   }
 

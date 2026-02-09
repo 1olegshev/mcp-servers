@@ -11,6 +11,7 @@ import { ReleaseAnalyzerService } from '../../services/release-analyzer';
 // Mock services
 const mockIssueDetector = {
   findIssues: jest.fn(),
+  enrichIssuesWithJiraTitles: jest.fn().mockImplementation((issues) => Promise.resolve(issues)),
   formatIssuesReport: jest.fn()
 };
 

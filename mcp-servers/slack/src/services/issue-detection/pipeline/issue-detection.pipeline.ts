@@ -15,7 +15,6 @@ import { LLMClassifierService, ClassificationResult } from '../services/llm-clas
 export class IssueDetectionPipeline {
   private llmClassifier: LLMClassifierService | null = null;
   private useLLMClassification: boolean = true;
-  private llmInitialized: boolean = false;
 
   constructor(
     private messageService: ISlackMessageService,
@@ -28,23 +27,13 @@ export class IssueDetectionPipeline {
   }
 
   /**
-   * Lazily initialize the LLM classifier if Ollama is available
-   * Called only when LLM classification is actually needed
+   * Lazily initialize the LLM classifier if not yet created.
+   * Availability is checked per-call via TTL cache in LocalLLMClient,
+   * so this just ensures the service instance exists.
    */
-  private async ensureLLMClassifierInitialized(): Promise<void> {
-    if (this.llmInitialized) {
-      return;
-    }
-    this.llmInitialized = true;
-
-    try {
+  private ensureLLMClassifierInitialized(): void {
+    if (!this.llmClassifier) {
       this.llmClassifier = new LLMClassifierService();
-      const available = await this.llmClassifier.isAvailable();
-      if (!available) {
-        this.useLLMClassification = false;
-      }
-    } catch {
-      this.useLLMClassification = false;
     }
   }
 
@@ -96,26 +85,43 @@ export class IssueDetectionPipeline {
    * Apply LLM classification to filter false positives
    * Only runs if Ollama is available and LLM classification is enabled
    */
+  private async debugLog(msg: string): Promise<void> {
+    const line = `${new Date().toISOString()} ${msg}\n`;
+    if (process.env.NODE_ENV !== 'test') {
+      console.error(line);
+    }
+    try {
+      const fs = await import('fs');
+      fs.appendFileSync('/tmp/llm-blocker-debug.log', line);
+    } catch { /* ignore */ }
+  }
+
   private async applyLLMClassification(issues: Issue[], rawMessages: any[]): Promise<Issue[]> {
+    await this.debugLog(`[LLM-Blocker] START: ${issues.length} issues to classify, useLLM=${this.useLLMClassification}`);
+
     // Skip if LLM classification is disabled
     if (!this.useLLMClassification) {
+      await this.debugLog('[LLM-Blocker] SKIP: classification disabled');
       return issues;
     }
 
     // Lazily initialize the LLM classifier on first use
-    await this.ensureLLMClassifierInitialized();
+    this.ensureLLMClassifierInitialized();
 
     // Skip if classifier not available after initialization attempt
     if (!this.llmClassifier) {
+      await this.debugLog('[LLM-Blocker] SKIP: classifier not initialized');
       return issues;
     }
 
-    // Check if Ollama is available
+    // Check if LLM server is available
     const available = await this.llmClassifier.isAvailable();
     if (!available) {
+      await this.debugLog('[LLM-Blocker] SKIP: LLM server not available');
       return issues;
     }
 
+    await this.debugLog(`[LLM-Blocker] LLM available, classifying ${issues.length} issues`);
     const filteredIssues: Issue[] = [];
     const messageMap = new Map<string, any>();
 
@@ -139,6 +145,8 @@ export class IssueDetectionPipeline {
           threadContext
         );
 
+        await this.debugLog(`[LLM-Blocker] ${issue.tickets.map(t => t.key).join(',')} → isBlocker=${classification.isBlocker} (${classification.confidence}%) reason: ${classification.reasoning}`);
+
         if (classification.isBlocker) {
           filteredIssues.push({
             ...issue,
@@ -146,12 +154,14 @@ export class IssueDetectionPipeline {
             llmReasoning: classification.reasoning
           } as Issue);
         }
-      } catch {
+      } catch (error) {
+        await this.debugLog(`[LLM-Blocker] Classification error for ${issue.tickets.map(t => t.key).join(',')}: ${error}`);
         // On error, keep the issue (fail-safe)
         filteredIssues.push(issue);
       }
     }
 
+    await this.debugLog(`[LLM-Blocker] Result: ${issues.length} input → ${filteredIssues.length} confirmed blockers`);
     return filteredIssues;
   }
 
