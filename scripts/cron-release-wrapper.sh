@@ -73,55 +73,53 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-# Start Ollama for LLM-based blocker classification (if available)
-OLLAMA_STARTED=false
-OLLAMA_MODEL="qwen3:30b-a3b-instruct-2507-q4_K_M"
-if command -v ollama >/dev/null 2>&1; then
-    # Check if Ollama is already running
-    if ! pgrep -x "ollama" >/dev/null 2>&1; then
-        echo "$(date): Starting Ollama for LLM classification..." >> logs/cron-auto-release.log
-        ollama serve >> logs/ollama-cron.log 2>&1 &
-        OLLAMA_PID=$!
-        OLLAMA_STARTED=true
+# Start LM Studio server for LLM-based blocker classification (if available)
+LMS_STARTED=false
+if command -v lms >/dev/null 2>&1; then
+    # Check if LM Studio server is already running
+    if ! curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
+        echo "$(date): Starting LM Studio server for LLM classification..." >> logs/cron-auto-release.log
+        lms server start >> logs/lms-cron.log 2>&1
+        LMS_STARTED=true
 
-        # Wait for Ollama server to be ready (max 30 seconds)
+        # Wait for LM Studio server to be ready (max 30 seconds)
         for i in {1..30}; do
-            if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-                echo "$(date): Ollama server ready after ${i}s" >> logs/cron-auto-release.log
+            if curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
+                echo "$(date): LM Studio server ready after ${i}s" >> logs/cron-auto-release.log
                 break
             fi
             sleep 1
         done
     else
-        echo "$(date): Ollama already running" >> logs/cron-auto-release.log
+        echo "$(date): LM Studio server already running" >> logs/cron-auto-release.log
     fi
 
-    # Pre-warm the model by sending a simple prompt (prevents cold-start timeout)
-    # This loads the 30B model into memory before the actual report runs
-    echo "$(date): Pre-warming LLM model (this loads it into memory)..." >> logs/cron-auto-release.log
+    # Pre-warm the model (loads it into memory before the actual report runs)
+    echo "$(date): Pre-warming LLM model..." >> logs/cron-auto-release.log
     WARMUP_START=$(date +%s)
-    WARMUP_RESPONSE=$(curl -s --max-time 120 http://localhost:11434/api/generate \
-        -d "{\"model\": \"$OLLAMA_MODEL\", \"prompt\": \"Reply with just: ready\", \"stream\": false}" 2>&1)
+    WARMUP_RESPONSE=$(curl -s --max-time 120 http://localhost:1234/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"messages": [{"role": "user", "content": "Reply with just: ready"}], "max_tokens": 10, "stream": false}' 2>&1)
     WARMUP_END=$(date +%s)
     WARMUP_DURATION=$((WARMUP_END - WARMUP_START))
 
-    if echo "$WARMUP_RESPONSE" | grep -q '"response"'; then
+    if echo "$WARMUP_RESPONSE" | grep -q '"choices"'; then
         echo "$(date): Model pre-warmed successfully in ${WARMUP_DURATION}s" >> logs/cron-auto-release.log
     else
         echo "$(date): Model pre-warm failed after ${WARMUP_DURATION}s (will use regex fallback): $WARMUP_RESPONSE" >> logs/cron-auto-release.log
     fi
 else
-    echo "$(date): Ollama not installed, using regex-only detection" >> logs/cron-auto-release.log
+    echo "$(date): LM Studio CLI not installed, using regex-only detection" >> logs/cron-auto-release.log
 fi
 
 # Run the Node.js script
 node scripts/release-status-auto.mjs >> logs/cron-auto-release.log 2>&1
 EXIT_CODE=$?
 
-# Stop Ollama if we started it (save resources when sleeping)
-if [ "$OLLAMA_STARTED" = true ] && [ -n "$OLLAMA_PID" ]; then
-    echo "$(date): Stopping Ollama (PID: $OLLAMA_PID)" >> logs/cron-auto-release.log
-    kill $OLLAMA_PID 2>/dev/null
+# Stop LM Studio server if we started it (save resources when sleeping)
+if [ "$LMS_STARTED" = true ]; then
+    echo "$(date): Stopping LM Studio server" >> logs/cron-auto-release.log
+    lms server stop >> logs/lms-cron.log 2>&1
 fi
 
 # Log completion with exit code

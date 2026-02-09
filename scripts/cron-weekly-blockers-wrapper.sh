@@ -33,39 +33,39 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-# Start Ollama for LLM-based classification (if available)
-OLLAMA_STARTED=false
-if command -v ollama >/dev/null 2>&1; then
-    # Check if Ollama is already running
-    if ! pgrep -x "ollama" >/dev/null 2>&1; then
-        echo "$(date): Starting Ollama for LLM classification..." >> logs/cron-weekly-blockers.log
-        ollama serve >> logs/ollama-cron.log 2>&1 &
-        OLLAMA_PID=$!
-        OLLAMA_STARTED=true
+# Start LM Studio server for LLM-based classification (if available)
+LMS_STARTED=false
+if command -v lms >/dev/null 2>&1; then
+    # Check if LM Studio server is already running
+    if ! curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
+        echo "$(date): Starting LM Studio server for LLM classification..." >> logs/cron-weekly-blockers.log
+        lms server start >> logs/lms-cron.log 2>&1
 
-        # Wait for Ollama to be ready (max 30 seconds)
+        LMS_STARTED=true
+
+        # Wait for LM Studio to be ready (max 30 seconds)
         for i in {1..30}; do
-            if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-                echo "$(date): Ollama ready after ${i}s" >> logs/cron-weekly-blockers.log
+            if curl -s http://localhost:1234/v1/models >/dev/null 2>&1; then
+                echo "$(date): LM Studio ready after ${i}s" >> logs/cron-weekly-blockers.log
                 break
             fi
             sleep 1
         done
     else
-        echo "$(date): Ollama already running" >> logs/cron-weekly-blockers.log
+        echo "$(date): LM Studio server already running" >> logs/cron-weekly-blockers.log
     fi
 else
-    echo "$(date): Ollama not installed, using regex-only detection" >> logs/cron-weekly-blockers.log
+    echo "$(date): LM Studio CLI not installed, using regex-only detection" >> logs/cron-weekly-blockers.log
 fi
 
 # Run the Node.js script
 node scripts/weekly-blockers-auto.mjs >> logs/cron-weekly-blockers.log 2>&1
 EXIT_CODE=$?
 
-# Stop Ollama if we started it (save resources when sleeping)
-if [ "$OLLAMA_STARTED" = true ] && [ -n "$OLLAMA_PID" ]; then
-    echo "$(date): Stopping Ollama (PID: $OLLAMA_PID)" >> logs/cron-weekly-blockers.log
-    kill $OLLAMA_PID 2>/dev/null
+# Stop LM Studio server if we started it (save resources when sleeping)
+if [ "$LMS_STARTED" = true ]; then
+    echo "$(date): Stopping LM Studio server" >> logs/cron-weekly-blockers.log
+    lms server stop >> logs/lms-cron.log 2>&1
 fi
 
 # Log completion with exit code

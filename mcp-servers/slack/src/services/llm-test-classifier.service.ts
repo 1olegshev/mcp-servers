@@ -1,14 +1,14 @@
 /**
  * LLM-based Test Thread Classifier Service
  *
- * Uses local Ollama with Qwen3 to semantically classify test failure statuses
+ * Uses local LLM (via OpenAI-compatible API) to semantically classify test failure statuses
  * from Slack thread replies. Provides more accurate classification than regex-only
  * approach, especially for ambiguous or complex replies.
  */
 
 import { SlackMessage } from '../types/index.js';
 import { extractAllMessageText } from '../utils/message-extractor.js';
-import { OllamaClient } from '../clients/ollama-client.js';
+import { LocalLLMClient } from '../clients/local-llm-client.js';
 
 export interface TestStatusClassification {
   testName: string;
@@ -45,11 +45,11 @@ const TEST_CLASSIFICATION_SCHEMA = {
 };
 
 export class LLMTestClassifierService {
-  private ollamaClient: OllamaClient;
+  private llmClient: LocalLLMClient;
   private enabled: boolean;
 
-  constructor(ollamaClient?: OllamaClient) {
-    this.ollamaClient = ollamaClient || new OllamaClient();
+  constructor(llmClient?: LocalLLMClient) {
+    this.llmClient = llmClient || new LocalLLMClient();
     this.enabled = true;
   }
 
@@ -57,7 +57,7 @@ export class LLMTestClassifierService {
    * Check if Ollama is available and the model is loaded
    */
   async isAvailable(): Promise<boolean> {
-    return this.ollamaClient.isAvailable();
+    return this.llmClient.isAvailable();
   }
 
   /**
@@ -98,7 +98,7 @@ export class LLMTestClassifierService {
         fs.appendFileSync(logFile, `Thread content:\n${threadContent}\n`);
       }
 
-      const response = await this.callOllama(prompt);
+      const response = await this.callLLM(prompt);
 
       if (debugLLM) {
         const fs = await import('fs');
@@ -264,14 +264,14 @@ Output ONLY valid JSON (no markdown, no explanation):
   }
 
   /**
-   * Call Ollama API using shared client with structured JSON output
+   * Call LLM API using shared client with structured JSON output
    */
-  private async callOllama(prompt: string): Promise<string> {
-    return this.ollamaClient.generate(prompt, {
+  private async callLLM(prompt: string): Promise<string> {
+    return this.llmClient.generate(prompt, {
       temperature: 0.3,
-      num_predict: 2048,  // Increased for large test lists (14+ tests)
+      maxTokens: 2048,  // Increased for large test lists (14+ tests)
       timeout: 60000,
-      format: TEST_CLASSIFICATION_SCHEMA
+      responseSchema: TEST_CLASSIFICATION_SCHEMA
     });
   }
 
@@ -302,7 +302,7 @@ Output ONLY valid JSON (no markdown, no explanation):
   private parseResponse(response: string, failedTests: string[]): ThreadClassificationResult {
     // With structured output, response should be valid JSON directly
     // Still clean response for any thinking tokens that might appear
-    const cleanResponse = OllamaClient.cleanResponse(response);
+    const cleanResponse = LocalLLMClient.cleanResponse(response);
 
     try {
       const parsed = JSON.parse(cleanResponse);

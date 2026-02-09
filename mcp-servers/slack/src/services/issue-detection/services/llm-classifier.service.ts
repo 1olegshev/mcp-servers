@@ -1,11 +1,11 @@
 /**
  * LLM Classifier Service
- * Uses local Ollama with Qwen3 to classify Slack messages as blockers
+ * Uses local LLM (via OpenAI-compatible API) to classify Slack messages as blockers
  * Replaces complex regex patterns with semantic understanding
  */
 
 import { SlackMessage } from '../../../types/index.js';
-import { OllamaClient } from '../../../clients/ollama-client.js';
+import { LocalLLMClient } from '../../../clients/local-llm-client.js';
 
 export interface ClassificationResult {
   isBlocker: boolean;
@@ -26,11 +26,11 @@ const BLOCKER_CLASSIFICATION_SCHEMA = {
 };
 
 export class LLMClassifierService {
-  private ollamaClient: OllamaClient;
+  private llmClient: LocalLLMClient;
   private enabled: boolean;
 
-  constructor(ollamaClient?: OllamaClient) {
-    this.ollamaClient = ollamaClient || new OllamaClient();
+  constructor(llmClient?: LocalLLMClient) {
+    this.llmClient = llmClient || new LocalLLMClient();
     this.enabled = true;
   }
 
@@ -38,7 +38,7 @@ export class LLMClassifierService {
    * Check if Ollama is available
    */
   async isAvailable(): Promise<boolean> {
-    return this.ollamaClient.isAvailable();
+    return this.llmClient.isAvailable();
   }
 
   /**
@@ -55,7 +55,7 @@ export class LLMClassifierService {
     const prompt = this.buildPrompt(message, threadContext);
 
     try {
-      const response = await this.callOllama(prompt);
+      const response = await this.callLLM(prompt);
       return this.parseResponse(response, message);
     } catch (error) {
       console.error('LLM classification failed, using fallback:', error);
@@ -102,14 +102,14 @@ Output JSON only:
   }
 
   /**
-   * Call Ollama API using shared client with structured JSON output
+   * Call LLM API using shared client with structured JSON output
    */
-  private async callOllama(prompt: string): Promise<string> {
-    return this.ollamaClient.generate(prompt, {
+  private async callLLM(prompt: string): Promise<string> {
+    return this.llmClient.generate(prompt, {
       temperature: 0.3,
-      num_predict: 256,
+      maxTokens: 256,
       timeout: 30000,
-      format: BLOCKER_CLASSIFICATION_SCHEMA
+      responseSchema: BLOCKER_CLASSIFICATION_SCHEMA
     });
   }
 
@@ -121,7 +121,7 @@ Output JSON only:
     try {
       // With structured output, response should be valid JSON directly
       // Still clean response for any thinking tokens that might appear
-      const cleanResponse = OllamaClient.cleanResponse(response);
+      const cleanResponse = LocalLLMClient.cleanResponse(response);
       const parsed = JSON.parse(cleanResponse);
 
       // Extract ticket key from message

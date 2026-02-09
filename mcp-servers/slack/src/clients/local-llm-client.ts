@@ -1,40 +1,33 @@
 /**
- * Shared Ollama LLM Client
- * Used by both test classifier and blocker classifier services
+ * Local LLM Client (OpenAI-compatible API)
+ * Works with LM Studio, Ollama, or any OpenAI-compatible local server.
+ * Used by both test classifier and blocker classifier services.
  */
 
-export interface OllamaGenerateOptions {
+export interface LLMGenerateOptions {
   temperature?: number;
-  num_predict?: number;
+  maxTokens?: number;
   timeout?: number;
   /** JSON schema for structured output - ensures valid JSON response */
-  format?: Record<string, unknown>;
+  responseSchema?: Record<string, unknown>;
 }
 
-export interface OllamaResponse {
-  model: string;
-  created_at: string;
-  response: string;
-  thinking?: string;
-  done: boolean;
-}
-
-export class OllamaClient {
+export class LocalLLMClient {
   private baseUrl: string;
   private model: string;
   private availabilityChecked: boolean = false;
   private isAvailableCache: boolean = false;
 
   constructor(
-    baseUrl: string = 'http://localhost:11434',
-    model: string = 'qwen3:30b-a3b-instruct-2507-q4_K_M'
+    baseUrl: string = 'http://localhost:1234',
+    model: string = 'qwen/qwen3-30b-a3b-2507'
   ) {
     this.baseUrl = baseUrl;
     this.model = model;
   }
 
   /**
-   * Check if Ollama is available and the model is loaded
+   * Check if the LLM server is available and has a model loaded
    */
   async isAvailable(): Promise<boolean> {
     if (this.availabilityChecked) {
@@ -45,7 +38,7 @@ export class OllamaClient {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${this.baseUrl}/api/tags`, {
+      const response = await fetch(`${this.baseUrl}/v1/models`, {
         signal: controller.signal
       });
       clearTimeout(timeout);
@@ -57,9 +50,9 @@ export class OllamaClient {
       }
 
       const data = await response.json();
-      const models = data.models || [];
-      this.isAvailableCache = models.some((m: any) =>
-        m.name === this.model || m.name.startsWith(this.model.split(':')[0])
+      const models = data.data || [];
+      this.isAvailableCache = models.length > 0 && models.some((m: any) =>
+        m.id === this.model || m.id.includes(this.model)
       );
       this.availabilityChecked = true;
       return this.isAvailableCache;
@@ -71,7 +64,7 @@ export class OllamaClient {
   }
 
   /**
-   * Reset availability cache (useful if Ollama was started after initial check)
+   * Reset availability cache (useful if server was started after initial check)
    */
   resetAvailabilityCache(): void {
     this.availabilityChecked = false;
@@ -81,12 +74,12 @@ export class OllamaClient {
   /**
    * Generate a response from the model
    */
-  async generate(prompt: string, options: OllamaGenerateOptions = {}): Promise<string> {
+  async generate(prompt: string, options: LLMGenerateOptions = {}): Promise<string> {
     const {
       temperature = 0.3,
-      num_predict = 512,
+      maxTokens = 512,
       timeout = 30000,
-      format
+      responseSchema
     } = options;
 
     const controller = new AbortController();
@@ -96,20 +89,24 @@ export class OllamaClient {
     try {
       const requestBody: Record<string, unknown> = {
         model: this.model,
-        prompt,
-        stream: false,
-        options: {
-          temperature,
-          num_predict
-        }
+        messages: [{ role: 'user', content: prompt }],
+        temperature,
+        max_tokens: maxTokens,
+        stream: false
       };
 
-      // Add structured output format if provided
-      if (format) {
-        requestBody.format = format;
+      if (responseSchema) {
+        requestBody.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: 'response',
+            strict: true,
+            schema: responseSchema
+          }
+        };
       }
 
-      const response = await fetch(`${this.baseUrl}/api/generate`, {
+      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
@@ -119,21 +116,21 @@ export class OllamaClient {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Ollama API error: ${response.status}`);
+        throw new Error(`LLM API error: ${response.status}`);
       }
 
-      const data = await response.json() as OllamaResponse;
+      const data = await response.json();
       const duration = Date.now() - startTime;
-      console.error(`[Ollama] generate completed in ${duration}ms (prompt: ${prompt.length} chars)`);
+      console.error(`[LLM] generate completed in ${duration}ms (prompt: ${prompt.length} chars)`);
 
-      // Qwen3 puts thinking in separate field, actual output in response
-      if (data.response && data.response.trim()) {
-        return data.response;
+      const content = data.choices?.[0]?.message?.content;
+      if (content && content.trim()) {
+        return content;
       }
-      return data.thinking || '';
+      return '';
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error(`[Ollama] generate failed after ${duration}ms: ${error}`);
+      console.error(`[LLM] generate failed after ${duration}ms: ${error}`);
       clearTimeout(timeoutId);
       throw error;
     }

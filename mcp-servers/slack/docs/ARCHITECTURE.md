@@ -28,7 +28,7 @@ src/
 │   └── slack-auth.ts         # XOXC/XOXD auth, write access validation
 ├── clients/
 │   ├── slack-client.ts       # Slack Web API wrapper
-│   └── ollama-client.ts      # Shared LLM client (Qwen3)
+│   └── local-llm-client.ts   # Shared LLM client (OpenAI-compatible API)
 ├── handlers/
 │   ├── base-handler.ts       # Common error handling patterns
 │   ├── messaging.ts          # send, list, history, search, reactions
@@ -135,7 +135,7 @@ const pipeline = new IssueDetectionPipeline(
 ### ThreadAnalyzerService
 - **Purpose**: Determine if test failures have been reviewed
 - **Output**: Per-test status (resolved, not_blocking, investigating, etc.)
-- **LLM**: Uses LLMTestClassifierService when Ollama available
+- **LLM**: Uses LLMTestClassifierService when local LLM server available
 
 ### TestManagerUpdateDetector
 - **Purpose**: Find test manager's daily release decision
@@ -143,7 +143,7 @@ const pipeline = new IssueDetectionPipeline(
 - **Decisions**: release, start_hotfixing, postponed, aborted, unknown
 
 ### LLM Classifiers
-Both use shared `OllamaClient` with Qwen3:
+Both use shared `LocalLLMClient` (OpenAI-compatible API, works with LM Studio/Ollama):
 - **LLMClassifierService**: Blocker classification (is this a release blocker?)
 - **LLMTestClassifierService**: Test status classification (is this failure resolved?)
 
@@ -221,10 +221,14 @@ export class MyService implements IMyService {
 ### Working with LLM Classification
 
 ```bash
-# Setup (one-time)
-brew install ollama
-ollama pull qwen3:30b
-ollama serve
+# Setup (one-time) - using LM Studio
+# 1. Install LM Studio from https://lmstudio.ai
+# 2. Download a Qwen3-30B-A3B MLX model
+# 3. Start the server:
+lms server start
+
+# Verify
+curl http://localhost:1234/v1/models
 ```
 
 ```typescript
@@ -285,6 +289,6 @@ Enable via `.vscode/mcp.json`:
 | Issue | Solution |
 |-------|----------|
 | LLM timeout in tests | `pipeline.setLLMClassification(false)` |
-| Ollama not starting | Check `logs/ollama-cron.log` |
+| LM Studio not starting | Check `logs/lms-cron.log` or run `lms server start` |
 | ESM import errors | Ensure `.js` extension on imports |
 | VSCode using old code | Restart VSCode after rebuild |

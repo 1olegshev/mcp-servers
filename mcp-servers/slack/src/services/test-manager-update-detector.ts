@@ -26,12 +26,12 @@
  * - Be reflected in the release status summary
  * - NOT be used as a source for blocker detection (it's a summary, not a source)
  *
- * The detector uses LLM to analyze the main message AND thread replies
+ * The detector uses a local LLM (via OpenAI-compatible API) to analyze the main message AND thread replies
  * to capture the current state, which may have evolved from the original post.
  */
 
 import { SlackClient } from '../clients/slack-client.js';
-import { OllamaClient } from '../clients/ollama-client.js';
+import { LocalLLMClient } from '../clients/local-llm-client.js';
 import { SlackMessage } from '../types/index.js';
 import { DateUtils } from '../utils/date-utils.js';
 import { TEST_MANAGER_UPDATE_PATTERNS, JIRA_TICKET_PATTERN } from '../utils/patterns.js';
@@ -57,11 +57,11 @@ export interface TestManagerUpdate {
 export { TEST_MANAGER_UPDATE_PATTERNS };
 
 export class TestManagerUpdateDetector {
-  private ollamaClient: OllamaClient;
+  private llmClient: LocalLLMClient;
   private jiraBaseUrl: string;
 
   constructor(private slackClient: SlackClient) {
-    this.ollamaClient = new OllamaClient();
+    this.llmClient = new LocalLLMClient();
     this.jiraBaseUrl = process.env.JIRA_BASE_URL || '';
   }
 
@@ -213,7 +213,7 @@ export class TestManagerUpdateDetector {
     }
 
     // Try LLM analysis first
-    const llmAvailable = await this.ollamaClient.isAvailable();
+    const llmAvailable = await this.llmClient.isAvailable();
     if (llmAvailable) {
       try {
         const llmResult = await this.analyzewithLLM(text, threadReplies, isFriday);
@@ -288,9 +288,9 @@ Extract the CURRENT state (thread updates override the main message):
 Output JSON only:
 {"decision": "release|start_hotfixing|postponed|aborted|unknown", "decisionEvolved": true/false, "manualTestingStatus": "done|close_to_done|in_progress|unknown", "autotestsStatus": "reviewed|pending|unknown", "hotfixes": ["TICKET-123"], "summary": "brief summary"}`;
 
-    const response = await this.ollamaClient.generate(prompt, {
+    const response = await this.llmClient.generate(prompt, {
       temperature: 0.2,
-      num_predict: 512,
+      maxTokens: 512,
       timeout: 45000
     });
 
@@ -302,8 +302,8 @@ Output JSON only:
    */
   private parseLLMResponse(response: string): Partial<TestManagerUpdate> {
     try {
-      const cleanResponse = OllamaClient.cleanResponse(response);
-      const jsonStr = OllamaClient.extractBalancedJSON(cleanResponse);
+      const cleanResponse = LocalLLMClient.cleanResponse(response);
+      const jsonStr = LocalLLMClient.extractBalancedJSON(cleanResponse);
 
       if (!jsonStr) {
         throw new Error('No JSON found in response');

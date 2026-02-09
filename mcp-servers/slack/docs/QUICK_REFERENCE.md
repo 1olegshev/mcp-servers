@@ -16,15 +16,16 @@ export $(grep -v '^#' .env | grep -v '^$' | xargs)
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node mcp-servers/slack/dist/server.js 2>/dev/null | jq '.result.tools[].name'
 ```
 
-## LLM Setup (Ollama)
+## LLM Setup (LM Studio)
 
 ```bash
-brew install ollama
-ollama pull qwen3:30b
-ollama serve
+# 1. Install LM Studio from https://lmstudio.ai
+# 2. Download a Qwen3-30B-A3B MLX model in the app
+# 3. Start the server:
+lms server start
 
 # Verify
-curl http://localhost:11434/api/tags
+curl http://localhost:1234/v1/models
 ```
 
 ## Adding a Tool
@@ -106,12 +107,12 @@ SlackAuth.getInstance().validateWriteAccess(channel);
 const client = SlackAuth.getInstance().getClient();
 
 // LLM
-import { OllamaClient } from '../clients/ollama-client.js';
-const client = new OllamaClient();
+import { LocalLLMClient } from '../clients/local-llm-client.js';
+const client = new LocalLLMClient();
 if (await client.isAvailable()) {
   const response = await client.generate('prompt', { temperature: 0.3 });
-  const clean = OllamaClient.cleanResponse(response);
-  const json = OllamaClient.extractBalancedJSON(clean);
+  const clean = LocalLLMClient.cleanResponse(response);
+  const json = LocalLLMClient.extractBalancedJSON(clean);
 }
 ```
 
@@ -168,9 +169,9 @@ pipeline.setLLMClassification(false);
 ## Troubleshooting
 
 ```bash
-# Check Ollama
-curl http://localhost:11434/api/tags
-ollama list
+# Check LM Studio
+curl http://localhost:1234/v1/models
+lms status
 
 # Find missing .js extensions
 grep -r "from '\./.*[^.]'" src/
