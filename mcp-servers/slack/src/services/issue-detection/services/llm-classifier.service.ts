@@ -49,7 +49,7 @@ export class LLMClassifierService {
     threadContext: SlackMessage[] = []
   ): Promise<ClassificationResult> {
     if (!this.enabled) {
-      return this.fallbackClassification(message);
+      return this.fallbackClassification(message, threadContext);
     }
 
     const prompt = this.buildPrompt(message, threadContext);
@@ -59,7 +59,7 @@ export class LLMClassifierService {
       return this.parseResponse(response, message);
     } catch (error) {
       console.error('LLM classification failed, using fallback:', error);
-      return this.fallbackClassification(message);
+      return this.fallbackClassification(message, threadContext);
     }
   }
 
@@ -81,18 +81,22 @@ ACTIVE BLOCKER (isBlocker=true):
 - Escalation to @test-managers about an issue
 - Unresolved critical bug blocking release
 
+STILL A BLOCKER (isBlocker=true):
+- "hotfix ready", "hotfix PR" = fix is prepared but NOT yet deployed, blocker persists
+- "we can start hotfixing" = hotfix process initiated, blocker persists
+
 NOT A BLOCKER (isBlocker=false):
 - "Frontend release update" = STATUS SUMMARY from test manager, not a blocker report
 - "we can release", "good to release", "good to go" = blockers are RESOLVED
-- "hotfix ready", "hotfix deployed", "hotfix done", "fixed" = issue is RESOLVED
+- "hotfix deployed", "hotfix done", "hotfix merged", "fixed" = issue is RESOLVED
 - "blocking us to retest/test" = workflow inconvenience, not release blocker
 - Questions like "Is this a blocker?"
 - UI terms: "answer blocks", "code block"
 - "not blocking", "no longer blocking"
 
 KEY DISTINCTION:
-- "will hotfix X" = BLOCKER (action pending)
-- "hotfix ready/deployed" = NOT blocker (action completed)
+- "will hotfix X" / "hotfix ready" / "hotfix PR" = BLOCKER (fix pending deployment)
+- "hotfix deployed" / "hotfix done" / "hotfix merged" = NOT blocker (fix deployed)
 
 Message: "${mainText}"
 ${threadText ? `\nThread context:\n${threadText}` : ''}
@@ -143,16 +147,18 @@ Output JSON only:
    * Fallback classification using simple keyword matching
    * Used when Ollama is unavailable or fails
    */
-  private fallbackClassification(message: SlackMessage): ClassificationResult {
-    const text = (message.text || '').toLowerCase();
-    const ticketMatch = (message.text || '').match(/\b([A-Z]+-\d+)\b/);
+  private fallbackClassification(message: SlackMessage, threadContext: SlackMessage[] = []): ClassificationResult {
+    // Check both the main message AND thread context for blocking keywords
+    const allTexts = [message.text || '', ...threadContext.map(m => m.text || '')];
+    const combinedText = allTexts.join(' ').toLowerCase();
+    const ticketMatch = allTexts.join(' ').match(/\b([A-Z]+-\d+)\b/);
 
     // Simple keyword-based fallback
     const blockingKeywords = ['blocker', 'blocking', 'hotfix', 'no-go', 'no go'];
     const negativeKeywords = ['not a blocker', 'not blocking', 'is this a blocker'];
 
-    const hasBlocking = blockingKeywords.some(k => text.includes(k));
-    const hasNegative = negativeKeywords.some(k => text.includes(k));
+    const hasBlocking = blockingKeywords.some(k => combinedText.includes(k));
+    const hasNegative = negativeKeywords.some(k => combinedText.includes(k));
 
     return {
       isBlocker: hasBlocking && !hasNegative,
